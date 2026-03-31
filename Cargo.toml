@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0"
-eframe = "0.33"
-egui = "0.33"
+eframe = "0.34"
+egui = "0.34"
 pulse = { version = "2.30.1", package = "libpulse-binding" }
 psimple = { version = "2.29.0", package = "libpulse-simple-binding" }
 tokio = { version = "1.50.0", features = ["full"] }
