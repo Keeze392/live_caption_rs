@@ -1,11 +1,16 @@
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
 
 use psimple::Simple;
 use pulse::stream::Direction;
 use pulse::sample::{Spec, Format};
 
+const SAMPLE_RATE: usize = 16000;
+
+// meaning 1 sec of record
+const SAMPLES_PER_CHUNK: usize = SAMPLE_RATE / 2;
+
 // loop handling audio and send data to channel
-pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: &mut bool) {
+pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: Arc<AtomicBool>) {
     // init
     // set audio up
     let spec = Spec {
@@ -22,7 +27,7 @@ pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: &mut bool) {
         None, 
         "input_audio", 
         Direction::Record,
-        None,
+        Some("bluez_output.D5:D2:C6:90:33:0C.monitor"),
         "Input Audio",
         &spec,
         None,
@@ -37,11 +42,7 @@ pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: &mut bool) {
 
     // start working
     // missing check logic
-    loop {
-        if *is_ui_closed {
-            break;
-        }
-
+    while !is_ui_closed.load(Ordering::Relaxed) {
         // read from audio input
         match audio_server.read(&mut audio_data_bytes) {
             Ok(res) => res,
@@ -56,16 +57,13 @@ pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: &mut bool) {
 
         // 16k per second, i guess that's how audio work.
         // keep chunk >16k instead too small data
-        if buffer.len() >= 16000 {
-            
+        if buffer.len() >= SAMPLES_PER_CHUNK {
             // skip if silent
             if !is_silent(&buffer) {
+
                 match tx.send(std::mem::take(&mut buffer)) {
                     Ok(res) => res,
-                    Err(e) => {
-                        println!("send failed!: {e}");
-                        continue;
-                    }
+                    Err(_) => break,
                 }
             } else {
                 buffer.clear();
