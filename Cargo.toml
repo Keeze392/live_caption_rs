@@ -17,6 +17,7 @@ serde = "1.0.228"
 rosc = "0.11.4"
 time = "0.3.47"
 egui-file-dialog = "0.13.0"
+cpal = "0.17.3"
 
 [features]
 default = ["osc"]
