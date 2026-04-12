@@ -378,16 +378,17 @@ impl eframe::App for LiveCaptionRs {
             .min_size(0.0)
             .show_inside(ui,
             |ui| {
-                let squard_size: f32 = 32.5;
-                let b_settings = ui.add(widgets::Button::image(
-                        include_image!("../settings-icon-2.png"))
-                            .min_size(egui::vec2(squard_size, squard_size)
-                        )
-                );
-                
-                if b_settings.clicked() {
-                    self.settings.should_open_window.store(true, Ordering::Relaxed);
-                }
+                    let squard_size: f32 = 32.5;
+                    let b_settings = ui.add(widgets::Button::image(
+                            include_image!("../settings-icon-2.png"))
+                                .min_size(egui::vec2(squard_size, squard_size)
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                    );
+                    
+                    if b_settings.clicked() {
+                        self.settings.should_open_window.store(true, Ordering::Relaxed);
+                    }
         });
 
         // Label from speech to text

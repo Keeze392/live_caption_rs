@@ -2,7 +2,7 @@ use std::{path::{Path, PathBuf}, sync::{Arc, Mutex, atomic::{AtomicBool, Orderin
 
 use crate::utils::ui::LiveCaptionRs;
 
-use egui::{CentralPanel, widgets};
+use egui::{CentralPanel, Response, widgets};
 #[cfg(feature = "osc")]
 use egui::TextEdit;
 use egui_file_dialog::{FileDialog, Filter};
@@ -34,19 +34,30 @@ impl LiveCaptionRs {
                     // button to open new window for select model file
                     LiveCaptionRs::set_select_model(ui, &arc_select_model, &arc_select_model_dialog);
 
+                    ui.separator();
+
                     // slider - transparent option
                     let mut value = transparent_value.lock().unwrap();
                     LiveCaptionRs::set_slider_transparent(ui, &mut value);
 
-                    #[cfg(feature = "osc")]
-                    LiveCaptionRs::set_text_input_osc_port(ui, &arc_osc_output_port);
+                    ui.separator();
 
                     #[cfg(feature = "osc")]
-                    LiveCaptionRs::set_text_input_osc_path(ui, &arc_osc_output_path);
+                    {
+                        // OSC - expose the output text to outside
+                        LiveCaptionRs::set_text_input_osc_port(ui, &arc_osc_output_port);
 
+                        LiveCaptionRs::set_text_input_osc_path(ui, &arc_osc_output_path);
+                        
+                        ui.separator();
+                    }
+
+                    // save output text to history file
                     LiveCaptionRs::set_save_history_custom_path(ui, &arc_save_history_custom_path, &arc_save_history_dialog);
 
                     LiveCaptionRs::set_is_enable_save_history(ui, &arc_is_enable_save_history);
+
+                    ui.separator();
                 });
                 
                 // close settings GUI if "x" button is pressed
@@ -76,29 +87,37 @@ impl LiveCaptionRs {
         ) {
         let mut select_window_dialog = select_model_dialog.lock().unwrap();
 
-        ui.label(format!("Select model file: {}",
-                select_model
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .to_string_lossy()
-            )
-        );
+        ui.horizontal_wrapped(|ui| {
+                ui.label("Select model to load Speech to text AI\n");
 
-        if ui.button("Open").clicked() {
-            let dialog = std::mem::take(&mut *select_window_dialog)
-                .show_all_files_filter(false)
-                .default_file_filter("bin")
-                .add_file_filter(
-                    "bin",
-                    Filter::new(|path: &Path| path.extension().unwrap_or_default() == "bin"))
-                .max_selections(1);
+                ui.separator();
 
-            *select_window_dialog = dialog;
+                if ui.button("Open").clicked() {
+                    let dialog = std::mem::take(&mut *select_window_dialog)
+                        .show_all_files_filter(false)
+                        .default_file_filter("bin")
+                        .add_file_filter(
+                            "bin",
+                            Filter::new(|path: &Path| path
+                                .extension()
+                                .unwrap_or_default() == "bin"))
+                        .max_selections(1);
 
-            select_window_dialog.pick_file();
-        }
+                    *select_window_dialog = dialog;
+
+                    select_window_dialog.pick_file();
+                }
+        });
+            ui.label(format!("Selected model: {}", 
+                    select_model
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+            ));
 
         select_window_dialog.update(ui);
 
@@ -110,29 +129,38 @@ impl LiveCaptionRs {
     // set transparent of GUI
     // default: 0.75
     fn set_slider_transparent(ui: &mut egui::Ui, value: &mut f32) {
-        ui.add(widgets::Slider::new(value, 0.0..=1.0)
-            .step_by(0.05)
-        );
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Transparent for background GUI\n");
+            ui.label("Transparent:");
+            ui.add(widgets::Slider::new(value, 0.0..=1.0)
+                .step_by(0.05)
+            );
+        });
     }
 
     #[cfg(feature = "osc")]
     fn set_text_input_osc_port(ui: &mut egui::Ui, text: &Arc<Mutex<String>>) {
+        ui.label("OSC expose the output text to outside. This can used for VRChat or Resonite");
         let mut text_input = text.lock().unwrap().clone();
 
-        ui.label("osc port:");
+        ui.horizontal_wrapped(|ui| {
+            ui.label("osc port:");
 
-        ui.add(TextEdit::singleline(&mut text_input));
+            ui.add(TextEdit::singleline(&mut text_input));
+        });
 
-        *text.lock().unwrap() = text_input;
+            *text.lock().unwrap() = text_input;
     }
 
     #[cfg(feature = "osc")]
     fn set_text_input_osc_path(ui: &mut egui::Ui, text: &Arc<Mutex<String>>) {
         let mut text_input = text.lock().unwrap().clone();
 
-        ui.label("osc path:");
+        ui.horizontal_wrapped(|ui| {
+            ui.label("osc path:");
 
-        ui.add(TextEdit::singleline(&mut text_input));
+            ui.add(TextEdit::singleline(&mut text_input));
+        });
 
         *text.lock().unwrap() = text_input;
     }
@@ -145,7 +173,13 @@ impl LiveCaptionRs {
 
         let mut select_window_dialog = arc_dialog.lock().unwrap();
 
-        ui.label(format!("History custom path: {}",
+        ui.label("If you wish to save output text as history, you can enable here.");
+
+        if ui.button("Open").clicked() {
+            select_window_dialog.pick_directory();
+        }
+
+        ui.label(format!("Custom path: {}",
                 arc_path
                 .lock()
                 .unwrap()
@@ -155,10 +189,6 @@ impl LiveCaptionRs {
             )
         );
 
-        if ui.button("Open").clicked() {
-            select_window_dialog.pick_directory();
-        }
-
         select_window_dialog.update(ui);
 
         if let Some(path) = select_window_dialog.take_picked() {
@@ -166,12 +196,47 @@ impl LiveCaptionRs {
         }
     }
 
-    fn set_is_enable_save_history(ui: &mut egui::Ui, toggle: &Arc<AtomicBool>) {
-        let mut check_toggle = toggle.load(Ordering::Relaxed);
+    // a custom switch toggle, copied from egui example about switch toggle. (why they didn't put
+    // into his widget!? :V)
+    fn set_is_enable_save_history(ui: &mut egui::Ui, toggle: &Arc<AtomicBool>) -> Response {
+        let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
+        let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+        let mut on = toggle.load(Ordering::Relaxed);
 
-        ui.label(format!("Enable save history?: {check_toggle}"));
-        ui.add(egui::Checkbox::new(&mut check_toggle, ""));
+        ui.label(format!("Enable history:"));
 
-        toggle.store(check_toggle, Ordering::Relaxed);
+        if response.clicked() {
+            on = !on;
+            response.mark_changed();
+        }
+
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), on, "")
+        });
+
+        if ui.is_rect_visible(rect) {
+            let how_on = ui.ctx().animate_bool_responsive(response.id, on);
+            let visuals = ui.style().interact_selectable(&response, on);
+            let rect = rect.expand(visuals.expansion);
+            let radius = 0.5 * rect.height();
+
+            ui.painter().rect(
+                rect,
+                radius,
+                visuals.bg_fill,
+                visuals.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
+
+            let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+            let center = egui::pos2(circle_x, rect.center().y);
+
+            ui.painter()
+                .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
+        }
+
+        toggle.store(on, Ordering::Relaxed);
+
+        response
     }
 }
