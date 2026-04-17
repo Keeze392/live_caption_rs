@@ -80,6 +80,7 @@ impl LiveCaptionRs {
     }
 
     // pop up new window for select file model begin with ".bin"
+    #[inline]
     fn set_select_model(
         ui: &mut egui::Ui,
         select_model: &Arc<Mutex<Option<PathBuf>>>,
@@ -87,11 +88,9 @@ impl LiveCaptionRs {
         ) {
         let mut select_window_dialog = select_model_dialog.lock().unwrap();
 
+        ui.label("Select model to load Speech to text AI");
+
         ui.horizontal_wrapped(|ui| {
-                ui.label("Select model to load Speech to text AI\n");
-
-                ui.separator();
-
                 if ui.button("Open").clicked() {
                     let dialog = std::mem::take(&mut *select_window_dialog)
                         .show_all_files_filter(false)
@@ -128,9 +127,11 @@ impl LiveCaptionRs {
 
     // set transparent of GUI
     // default: 0.75
+    #[inline]
     fn set_slider_transparent(ui: &mut egui::Ui, value: &mut f32) {
+        ui.label("Transparent for background GUI");
+
         ui.horizontal_wrapped(|ui| {
-            ui.label("Transparent for background GUI\n");
             ui.label("Transparent:");
             ui.add(widgets::Slider::new(value, 0.0..=1.0)
                 .step_by(0.05)
@@ -139,8 +140,9 @@ impl LiveCaptionRs {
     }
 
     #[cfg(feature = "osc")]
+    #[inline]
     fn set_text_input_osc_port(ui: &mut egui::Ui, text: &Arc<Mutex<String>>) {
-        ui.label("OSC expose the output text to outside. This can used for VRChat or Resonite");
+        ui.label("OSC expose the output text to outside.");
         let mut text_input = text.lock().unwrap().clone();
 
         ui.horizontal_wrapped(|ui| {
@@ -153,6 +155,7 @@ impl LiveCaptionRs {
     }
 
     #[cfg(feature = "osc")]
+    #[inline]
     fn set_text_input_osc_path(ui: &mut egui::Ui, text: &Arc<Mutex<String>>) {
         let mut text_input = text.lock().unwrap().clone();
 
@@ -166,6 +169,7 @@ impl LiveCaptionRs {
     }
 
     // select directory for output a History file to that path.
+    #[inline]
     fn set_save_history_custom_path(
         ui: &mut egui::Ui,
         arc_path: &Arc<Mutex<Option<PathBuf>>>,
@@ -198,6 +202,7 @@ impl LiveCaptionRs {
 
     // a custom switch toggle, copied from egui example about switch toggle. (why they didn't put
     // into his widget!? :V)
+    #[inline]
     fn set_is_enable_save_history(ui: &mut egui::Ui, toggle: &Arc<AtomicBool>) -> Response {
         let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
         let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());

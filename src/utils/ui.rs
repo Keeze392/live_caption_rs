@@ -164,7 +164,8 @@ impl LiveCaptionRs {
             livecaption
     }
 
-    // get how many lines in Text on Live caption GUI
+    // Check if output text rows higher than GUI, remove old line.
+    // And save the old line to history if is enabled.
     #[inline]
     fn remove_one_wrapped_line(
         ui: &egui::Ui,
@@ -172,10 +173,18 @@ impl LiveCaptionRs {
         custom_path: &Arc<Mutex<Option<PathBuf>>>,
         is_enable_history: &Arc<AtomicBool>,
         ) {
+
+        let gui_height = ui.available_height();
+
+        // check if available height is high than 0.0, skip it. No remove here.
+        if gui_height > 0.0 {
+            return;
+        }
+
         let mut text = text_shared.lock().unwrap();
 
         // get available width in UI
-        let available_width = ui.available_width();
+        let gui_width = ui.available_width();
 
         // get font size
         let font_id = FontId::proportional(22.0);
@@ -184,14 +193,8 @@ impl LiveCaptionRs {
             text.clone(), 
             font_id, 
             ui.visuals().text_color(),
-            available_width
+            gui_width
         );
-
-        // check if less than x lines, skip. No remove here.
-        // should replace with check window's height for best accurate
-        if galley.rows.len() <= 3 {
-            return;
-        }
 
         // begin process to remove first old line
         let first_line = &galley.rows[0].text();
@@ -397,16 +400,16 @@ impl eframe::App for LiveCaptionRs {
             .show_inside(ui, |ui| {
             ui.label(RichText::new(together_text.clone())
                 .color(Color32::WHITE));
-        });
 
-        // check if more than 4 lines, remove one oldest line
-        // save one oldest line to history file if enable
-        LiveCaptionRs::remove_one_wrapped_line(
-            &ui,
-            &self.speech_to_text_history,
-            &self.settings.save_history_custom_path,
-            &self.settings.is_enable_save_history,
-        );
+            // check if more than 4 lines, remove one oldest line
+            // save one oldest line to history file if enable
+            LiveCaptionRs::remove_one_wrapped_line(
+                &ui,
+                &self.speech_to_text_history,
+                &self.settings.save_history_custom_path,
+                &self.settings.is_enable_save_history,
+            );
+        });
 
         // Settings Window will open if true
         if self.settings.should_open_window.load(Ordering::Relaxed) {
