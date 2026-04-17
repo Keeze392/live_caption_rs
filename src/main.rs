@@ -1,5 +1,6 @@
 mod utils;
 
+//use crate::utils::audio_cpal;
 #[cfg(feature = "osc")]
 use crate::utils::osc;
 
@@ -41,7 +42,7 @@ fn main() {
     let select_model_t3 = Arc::clone(&select_model_t2);
 
     // Transparent
-    let transparent_value_t3 = Arc::new(Mutex::new(0.75));
+    let transparent_value_t3 = Arc::new(Mutex::new(1.0));
 
     // String osc
     #[cfg(feature = "osc")]
@@ -58,6 +59,9 @@ fn main() {
     // t1
     let audio_thread = thread::spawn(move || audio::worker(tx, is_ui_closed_t1));
 
+    //let (tx_dummy, _) = mpsc::sync_channel::<Vec<f32>>(16);
+    //let audio_thread_dummy = thread::spawn(move || audio_cpal::worker(tx_dummy));
+
     // add task for speech to text
     // t2
     let stt_thread = thread::spawn(move || stt::worker(
@@ -71,7 +75,6 @@ fn main() {
     ));
 
     #[cfg(feature = "osc")]
-    // testing osc
     let osc_thread = thread::spawn(move || osc::osc_sender_string(
             output_text_rx,
             is_ui_closed_t4,
@@ -85,8 +88,8 @@ fn main() {
             .with_has_shadow(false)     // for mac os(?)
             .with_transparent(true)
             .with_inner_size([800.0, 100.0])
-            .with_min_inner_size([5.0, 5.0])
-            .with_max_inner_size([1800.0, 100.0]),
+            .with_min_inner_size([50.0, 50.0])
+            .with_max_inner_size([1800.0, 300.0]),
         ..Default::default()
     };
 
@@ -134,4 +137,6 @@ fn main() {
         Ok(()) => (),
         Err(_) => panic!("OSC Thread error"),
     };
+
+    //audio_thread_dummy.join().unwrap();
 }

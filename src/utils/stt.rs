@@ -5,7 +5,7 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 const RATE: usize = 16000;
 
 const VEC_MINIMUM_SECS: usize = 2;
-const VEC_MAXIMUM_SECS: usize = 4;
+const VEC_MAXIMUM_SECS: usize = 3;
 
 const VEC_MINIMUM_SAMPLES: usize = RATE * VEC_MINIMUM_SECS;
 const VEC_MAXIMUM_SAMPLES: usize = RATE * VEC_MAXIMUM_SECS;
