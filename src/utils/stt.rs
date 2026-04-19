@@ -84,6 +84,7 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
             params.set_print_progress(false);
             params.set_print_timestamps(false);
             params.set_single_segment(true);
+            params.set_translate(true);
             params.set_no_timestamps(true);
             params.set_no_context(true);
             params.set_no_speech_thold(0.7);
