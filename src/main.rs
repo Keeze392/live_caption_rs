@@ -1,5 +1,7 @@
 mod utils;
 
+use eframe::egui;
+
 //use crate::utils::audio_cpal;
 #[cfg(feature = "osc")]
 use crate::utils::osc;
