@@ -11,6 +11,7 @@ const VEC_MINIMUM_SAMPLES: usize = RATE * VEC_MINIMUM_SECS;
 const VEC_MAXIMUM_SAMPLES: usize = RATE * VEC_MAXIMUM_SECS;
 
 // loop handling model AI speech to text
+#[inline]
 pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
     output_text: Arc<Mutex<String>>,
     output_text_history: Arc<Mutex<String>>,
@@ -44,7 +45,10 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
 
                 ctx = match WhisperContext::new_with_params(
                     model_file.clone(),
-                    WhisperContextParameters::default()
+                    WhisperContextParameters {
+                        use_gpu: true,
+                        ..Default::default()
+                    }
                 ) {
                     Ok(res) => Some(res),
                     Err(_) => {sleep(Duration::from_millis(500)); continue},
