@@ -21,8 +21,8 @@ fn main() {
 
     #[cfg(feature = "osc")]
     let (output_text_tx, output_text_rx) = mpsc::sync_channel::<String>(8);
-    #[cfg(feature = "osc")]
-    println!("osc on!");
+    //#[cfg(feature = "osc")]
+    //println!("osc on!");
 
     // Arc for safety shared data between Threads
     // bool
