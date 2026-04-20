@@ -1,31 +1,53 @@
-/*use std::sync::mpsc;
+use std::sync::mpsc;
 
-use cpal::{Device, OutputCallbackInfo, Sample, SampleFormat, StreamConfig, traits::{DeviceTrait, HostTrait, StreamTrait}};
+#[allow(unused)]
+use cpal::{Device, HostId, OutputCallbackInfo, Sample, SampleFormat, StreamConfig, traits::{DeviceTrait, HostTrait, StreamTrait}};
 
-use rubato::{Fft, FixedSync, Resampler};
-
+//use rubato::{Fft, FixedSync, Resampler};
+#[allow(unused)]
 pub fn worker(tx: mpsc::SyncSender::<Vec<f32>>) {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .unwrap();
+    
+    let devices = host.input_devices().expect("no device available");
 
-    let mut supported_config_range = device
-        .supported_input_configs()
-        .unwrap();
+    for device in devices {
 
-    let supported_config = supported_config_range
-        .next()
-        .unwrap()
-        .with_max_sample_rate();
+        println!("device: {}", device.description().unwrap().name());
+        if device.description().unwrap().name().contains("PulseAudio Sound Server") {
+            let mut supported_config_range = device
+                .supported_input_configs()
+                .expect("error while querying configs");
 
-    println!("{:#?}", supported_config);*/
+            let supported_config = supported_config_range
+                .next()
+                .expect("no supported")
+                .with_max_sample_rate();
+            
+            println!("device: {}", device.description().unwrap().name());
+            let stream = device.build_input_stream(
+                &supported_config.config(),
+                move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                    // handling data
+                    println!("oh? {data:?}");
+                },
+                move |err| {
+                    // err
+                    eprintln!("oh no! something went wrong! {err}");
+                },
+                None
+            ).unwrap();
 
-    /*let config = supported_config.into();
+            stream.play().unwrap();
 
-    let input_sr = config.sample_rate.0 as usize;
+            loop {
+                // don't leave thread! stay park >:(
+                // or stream will get dropped.
+                std::thread::park();
+            }
+        }
+    }
 
-    let mut resampler = Fft::<f32>::new(
+    /*let mut resampler = Fft::<f32>::new(
         input_sr,
         16000,
         1024,
@@ -46,9 +68,10 @@ pub fn worker(tx: mpsc::SyncSender::<Vec<f32>>) {
     stream.play().unwrap();
 
     loop {
+
         std::thread::park();
-    }
-}*/
+    }*/
+}
 
 /*fn build_stream<T: Sample>(
     device: &Device,
