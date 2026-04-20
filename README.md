@@ -9,7 +9,7 @@ Cross-platform are still work in progress. Currently only support Linux due Audi
 
 ### **Features**
 - Support AMD GPU
-- Support NVIDIA GPU (CUDA)
+- Support NVIDIA GPU
 - Support translate almost any Languages to English except Model with ".en" name in file cannot translate.
 - Support OSC to export the output text
 - Auto Save all configures by close GUI "x" button
@@ -19,7 +19,7 @@ Cross-platform are still work in progress. Currently only support Linux due Audi
 You can download by [Release](https://github.com/Keeze392/live_caption_rs/releases/tag/0.1.0). \
 If you have Nvidia GPU -> pick cuda \
 If you have AMD GPU -> pick vulkan \
-If none of above or you wish without GPU -> pick CPU \
+If none of above or you wish without GPU -> pick CPU
 
 **For model:** \
 pick one of any models on list: \
