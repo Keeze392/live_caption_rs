@@ -27,7 +27,7 @@ pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: Arc<AtomicBool>) {
         None, 
         "input_audio", 
         Direction::Record,
-        Some("bluez_output.D5:D2:C6:90:33:0C.monitor"),
+        None,
         "Input Audio",
         &spec,
         None,
@@ -69,6 +69,7 @@ pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: Arc<AtomicBool>) {
                 buffer.clear();
             }
         }
+
     }
 }
 
