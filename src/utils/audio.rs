@@ -27,7 +27,7 @@ pub fn worker(tx: mpsc::SyncSender<Vec<f32>>, is_ui_closed: Arc<AtomicBool>) {
         None, 
         "input_audio", 
         Direction::Record,
-        None,
+        Some("*.monitor"),
         "Input Audio",
         &spec,
         None,

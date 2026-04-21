@@ -112,7 +112,7 @@ impl LiveCaptionRs {
                     .lock()
                     .unwrap()
                     .as_ref()
-                    .unwrap()
+                    .unwrap_or(&PathBuf::from("None"))
                     .file_name()
                     .unwrap()
                     .to_string_lossy()
@@ -188,7 +188,7 @@ impl LiveCaptionRs {
                 .lock()
                 .unwrap()
                 .as_ref()
-                .unwrap()
+                .unwrap_or(&PathBuf::from("None"))
                 .to_string_lossy()
             )
         );
