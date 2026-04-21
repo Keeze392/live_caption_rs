@@ -36,6 +36,8 @@ pub fn osc_sender_string(
             Err(e) => { println!("Error -- make packet failed: {e}"); return; }
         };
 
-        socket.send_to(&buf, target_addr_port).unwrap();
+        if !port.is_empty() {
+            socket.send_to(&buf, target_addr_port).unwrap();
+        }
     }
 }
