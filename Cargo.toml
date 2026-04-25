@@ -7,8 +7,6 @@ edition = "2024"
 eframe = { version = "0.34", features = ["persistence"] }
 egui = "0.34"
 egui_extras = { version = "0.34", features = ["image"] }
-pulse = { version = "2.30.1", package = "libpulse-binding" }
-psimple = { version = "2.29.0", package = "libpulse-simple-binding" }
 whisper-rs = { version = "0.16.0", features = ["vulkan"] }
 env_logger = "0.11.10"
 dirs = "6.0.0"
@@ -17,8 +15,15 @@ serde = "1.0.228"
 rosc = "0.11.4"
 time = "0.3.47"
 egui-file-dialog = "0.13.0"
-cpal = "0.17.3"
-rubato = "2.0.0"
+
+#[target.'cfg(target_os = "macos")'.dependencies]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wasapi = "0.23.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pulse = { version = "2.30.1", package = "libpulse-binding" }
+psimple = { version = "2.29.0", package = "libpulse-simple-binding" }
 
 [features]
 default = ["osc"]
