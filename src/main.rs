@@ -2,13 +2,20 @@ mod utils;
 
 use eframe::egui;
 
-//use crate::utils::audio_cpal;
 #[cfg(feature = "osc")]
 use crate::utils::osc;
 
 use crate::utils::ui;
 use crate::utils::stt;
-use crate::utils::audio;
+
+#[cfg(target_os = "linux")]
+use crate::utils::audio_linux::audio_worker;
+
+#[cfg(target_os = "windows")]
+use crate::utils::audio_windows::audio_worker;
+
+#[cfg(target_os = "macos")]
+use crate::utils::audio_macos::audio_worker;
 
 use std::thread;
 use std::sync::{mpsc, Arc, Mutex, atomic::AtomicBool};
@@ -59,10 +66,7 @@ fn main() {
 
     // add task for handling audio input
     // t1
-    let audio_thread = thread::spawn(move || audio::worker(tx, is_ui_closed_t1));
-
-    //let (tx_dummy, _) = mpsc::sync_channel::<Vec<f32>>(16);
-    //let audio_thread_dummy = thread::spawn(move || audio_cpal::worker(tx_dummy));
+    let audio_thread = thread::spawn(move || audio_worker(tx, is_ui_closed_t1));
 
     // add task for speech to text
     // t2
@@ -126,19 +130,17 @@ fn main() {
     
     match audio_thread.join() {
         Ok(()) => (),
-        Err(_) => panic!("Audio Thread error"),
+        Err(e) => panic!("Audio Thread error: {e:?}"),
     };
 
     match stt_thread.join() {
         Ok(()) => (),
-        Err(_) => panic!("STT Thread error"),
+        Err(e) => panic!("STT Thread error: {e:?}"),
     };
 
     #[cfg(feature = "osc")]
     match osc_thread.join() {
         Ok(()) => (),
-        Err(_) => panic!("OSC Thread error"),
+        Err(e) => panic!("OSC Thread error: {e:?}"),
     };
-
-    //audio_thread_dummy.join().unwrap();
 }
