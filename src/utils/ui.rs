@@ -3,7 +3,6 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
-use std::thread::sleep;
 use std::time::Duration;
 
 use eframe::egui;
@@ -314,7 +313,9 @@ impl LiveCaptionRs {
         // if custom path was set, will use output instead
         if custom_path.is_some() {
             name_with_date = format!("{}/{}_{}_{}.txt",
-                custom_path.unwrap().to_string_lossy(), // TODO fix this to avoid unwrap
+                custom_path
+                    .unwrap_or(docs_path)
+                    .to_string_lossy(),
                 date.year(),
                 date.month(),
                 date.day()
@@ -343,7 +344,7 @@ impl LiveCaptionRs {
 
         match file.write_all(format!("{}\n", output_text).as_bytes()) {
             Ok(()) => (),
-            Err(e) => { eprintln!("Error -- Failed to write history file: {e}"); return; }
+            Err(e) => { eprintln!("Error -- Failed to write into history file: {e}"); return; }
         };
     }
 }
@@ -417,8 +418,7 @@ impl eframe::App for LiveCaptionRs {
         }
 
         // limited to 50 fps, think enough.
-        sleep(Duration::from_millis(20));
-        ui.request_repaint();
+        ui.request_repaint_after(Duration::from_millis(20));
     }
 
     // set to true so it can tell other threads should stop if main gui is closed

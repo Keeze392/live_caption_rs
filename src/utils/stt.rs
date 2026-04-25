@@ -1,6 +1,6 @@
-use std::{collections::VecDeque, path::PathBuf, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}, mpsc}, thread::sleep, time::Duration};
+use std::{path::PathBuf, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}, mpsc}, thread::sleep, time::Duration};
 
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
 
 const RATE: usize = 16000;
 
@@ -21,9 +21,10 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
     output_text_tx: mpsc::SyncSender<String>,
     ) {
     // init
-    let mut buffer_live: VecDeque<f32> = VecDeque::new();
+    let mut buffer_live: Vec<f32> = Vec::new();
     let mut model_file: String = "".to_string();
-    let mut ctx: Option<WhisperContext> = None;
+    let mut ctx: Option<WhisperContext>;
+    let mut state: Option<WhisperState> = None;
 
     // this make somehow output to shut up the spam log, what the fuck?
     whisper_rs::install_logging_hooks();
@@ -31,13 +32,13 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
     // start working
     while !is_ui_closed.load(Ordering::Relaxed) {
         // get path
-        let new_path = {
-            let guard = select_model.lock().unwrap();
-            guard.clone()
+        let new_path_model = {
+            let model_path = select_model.lock().unwrap();
+            model_path.clone()
         };
 
         // check if new path for model file, start change to use new model
-        if let Some(path) = new_path {
+        if let Some(path) = new_path_model {
             let file = path.to_string_lossy();
 
             if file != model_file {
@@ -51,17 +52,26 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
                     }
                 ) {
                     Ok(res) => Some(res),
-                    Err(_) => {sleep(Duration::from_millis(500)); continue},
+                    Err(_) => {
+                            sleep(Duration::from_millis(500));
+                            continue
+                        },
                 };
+
+                // update the state if ctx did update successfully
+                if let Some(inside_ctx) = ctx {
+                    state = match inside_ctx.create_state() {
+                        Ok(s) => Some(s),
+                        Err(e) => {
+                            eprintln!("Err -- Creating state failed: {e}");
+                            continue;
+                        },
+                    }
+                }
             }
         }
 
-        if let Some(ctx) = &ctx {
-            let mut speech_to_text = match ctx.create_state() {
-                Ok(res) => res,
-                Err(_) => {sleep(Duration::from_millis(500)); continue},
-            };
-
+        if let Some(inside_state) = state.as_mut() {
             // get data from channel
             let mut buffer_new: Vec<f32> = match rx.recv() {
                 Ok(res) => res,
@@ -73,15 +83,16 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
             }
 
             // get accurate len for remove old samples excatly number
-            // "* 4" since audio record is 0.5s so we math 0.5 * 4 to get 2s for keep same as minimum chunk
+            // since audio record is 0.5s so we math 0.5 * 4 to get 2s for keep same as minimum chunk
             let buf_sample_len = buffer_new.len() * 4;
 
             // add new data to buffer_live
-            buffer_live.extend(&mut buffer_new.drain(..));
+            buffer_live.reserve(buffer_new.len());
+            buffer_live.append(&mut buffer_new);
 
             // set params object up (struct)
             let mut params = FullParams::new(SamplingStrategy::Greedy {
-                best_of: 1,
+                best_of: 5,
             });
 
             params.set_max_tokens(32);
@@ -93,68 +104,77 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
             params.set_no_context(true);
             params.set_no_speech_thold(0.7);
 
+            // -----------------------------------------------------------------------
             // buffer manager
-            // manage the buffer, keep old and add new until
-            // reach maximum size, it will push old chunk to buffer history
+            // manage the buffer, keep old samples and add new samples until
+            // reach maximum size, it will push old samples chunk to buffer history
             // so it can act like word by word, wihtout need wait for every full chunk
-            let mut buffer_history: VecDeque<f32> = VecDeque::new();
-            if buffer_live.len() <= VEC_MINIMUM_SAMPLES {
-                continue;
-
-            } else if buffer_live.len() >= VEC_MAXIMUM_SAMPLES {
-                buffer_history.extend(buffer_live.drain(..buf_sample_len));
+            // -----------------------------------------------------------------------
+            // feed to model
+            // live
+            let mut new_full_text = String::new();
+            if buffer_live.len() >= VEC_MINIMUM_SAMPLES {
+                new_full_text = task_whisper(
+                    inside_state,
+                    params.clone(),
+                    &mut buffer_live
+                );
             }
 
-            // feed to model
-            // live samples
-            if speech_to_text.full(params.clone(), &buffer_live.make_contiguous()).is_ok() {
-                let mut new_full_text = String::new();
-                let mut full_text_history = String::new();
+            // history
+            let mut full_text_history = String::new();
+            if buffer_live.len() >= VEC_MAXIMUM_SAMPLES {
+                full_text_history = task_whisper(
+                    inside_state,
+                    params,
+                    &mut buffer_live.drain(..buf_sample_len).collect()
+                );
+            }
 
-                for segment in speech_to_text.as_iter() {
-                    let text = segment.to_string();
+            // send text output to GUI thread
+            if !new_full_text.trim().is_empty() || 
+                !full_text_history.trim().is_empty() {
 
-                    if is_junk(text.clone()) {
-                        continue;
-                    }
+                let mut output = output_text.lock().unwrap();
+                *output = new_full_text;
 
-                    new_full_text.push_str(&text);
-                }
+                let mut output_h = output_text_history.lock().unwrap();
+                output_h.push_str(&full_text_history);
 
-                // history samples
-                if speech_to_text.full(params, &buffer_history.make_contiguous()).is_ok() {
-                    for segment in speech_to_text.as_iter() {
-                        let text = segment.to_string();
-
-                        if is_junk(text.clone()) {
-                            continue;
-                        }
-
-                        full_text_history.push_str(&text);
-                    }
-                }
-
-                // send text output to GUI thread
-                if !new_full_text.trim().is_empty() {
-                    let mut output = output_text.lock().unwrap();
-                    *output = new_full_text;
-
-                    let mut output_h = output_text_history.lock().unwrap();
-                    output_h.push_str(&full_text_history);
-
-                    #[cfg(feature = "osc")]
-                    match output_text_tx.send(format!("{output_h} {output}")) {
-                        Ok(()) => (),
-                        Err(e) => { println!("Error -- sender channel failed {e}"); break; }
-                    };
-                }
+                // send output text to OSC
+                #[cfg(feature = "osc")]
+                match output_text_tx.send(format!("{output_h} {output}")) {
+                    Ok(()) => (),
+                    Err(e) => { println!("Error -- sender channel failed {e}"); break; }
+                };
             }
         }
     }
 }
 
+fn task_whisper(whisper: &mut WhisperState, params: FullParams, buffer: &mut Vec<f32>) -> String {
+    match whisper.full(params, &buffer) {
+        Ok(()) => (),
+        Err(e) => eprintln!("Err -- running task whisper failed: {e}"),
+    };
+
+    let mut output_text = String::new();
+
+    for segment in whisper.as_iter() {
+        let text = segment.to_string();
+
+        if is_junk(&text) {
+            continue;
+        }
+
+        output_text.push_str(&text);
+    }
+
+    output_text
+}
+
 // throw word away if it's whisper decide to stupid choice xD
-fn is_junk(text: String) -> bool {
+fn is_junk(text: &String) -> bool {
     let text_trimmed: String = text.trim().to_lowercase();
     if text_trimmed.is_empty() { return true; }
 
@@ -168,12 +188,19 @@ fn is_junk(text: String) -> bool {
     ];
 
     for phrase in JUNK_WORDS.iter() {
-        if text_trimmed.contains(phrase) && text_trimmed.len() < 15 {
+        if text_trimmed.contains(phrase) &&
+            text_trimmed.len() < 15 {
+
             return true;
         }
     }
 
-    if text_trimmed.split_whitespace().collect::<Vec<_>>().windows(3).any(|w| w[0] == w[1] && w[1] == w[2]) {
+    if text_trimmed
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .windows(3)
+        .any(|w| w[0] == w[1] && w[1] == w[2]) {
+
         return true;
     }
 
