@@ -82,7 +82,6 @@ impl LiveCaptionRs {
                         &arc_save_history_custom_path,
                         &arc_is_enable_save_history,
 
-                        &arc_devices,
                         &arc_device_selected,
                     );
                 }

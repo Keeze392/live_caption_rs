@@ -35,7 +35,9 @@ pub struct LiveCaptionSettingsRs {
     is_enable_save_history: Arc<AtomicBool>,
 
     // audio devices
+    #[serde(skip)]
     devices: Arc<Mutex<Vec<String>>>,
+
     select_device: Arc<Mutex<Option<String>>>,
 
     // a bool for settings window to appear
@@ -242,7 +244,6 @@ impl LiveCaptionRs {
         osc_output_port: &Arc<Mutex<String>>,
         save_history_custom_path: &Arc<Mutex<Option<PathBuf>>>,
         is_enable_history: &Arc<AtomicBool>,
-        devices: &Arc<Mutex<Vec<String>>>,
         select_device: &Arc<Mutex<Option<String>>>,
         ) {
         let config_path: String = match dirs::data_local_dir() {
@@ -257,7 +258,6 @@ impl LiveCaptionRs {
         json_build.insert("transparent_value".into(), json!(transparent_value));
         json_build.insert("save_history_custom_path".into(), json!(save_history_custom_path));
         json_build.insert("is_enable_save_history".into(), json!(is_enable_history));
-        json_build.insert("devices".into(), json!(devices));
         json_build.insert("select_device".into(), json!(select_device));
 
         #[cfg(feature = "osc")]
@@ -307,7 +307,6 @@ impl LiveCaptionRs {
         *self.settings.transparent_value.lock().unwrap() = *unpack_json.transparent_value.lock().unwrap();
         *self.settings.save_history_custom_path.lock().unwrap() = unpack_json.save_history_custom_path.lock().unwrap().take();
         self.settings.is_enable_save_history = unpack_json.is_enable_save_history;
-        self.settings.devices = unpack_json.devices;
         self.settings.select_device = unpack_json.select_device;
 
         #[cfg(feature = "osc")]
