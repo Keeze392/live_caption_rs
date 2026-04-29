@@ -56,7 +56,7 @@ pub fn audio_worker(
     let _listener = match stream
         .add_local_listener::<()>()
         .process(move |stream, _data| {
-            // stop doing something to avoid segfault. This process about to get undisconnect.
+            // stop doing something to avoid segfault. This process about to disconnect.
             if is_ui_closed.load(std::sync::atomic::Ordering::Relaxed) {
                 return;
             }
