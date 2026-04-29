@@ -46,10 +46,7 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
 
                 ctx = match WhisperContext::new_with_params(
                     model_file.clone(),
-                    WhisperContextParameters {
-                        use_gpu: true,
-                        ..Default::default()
-                    }
+                    WhisperContextParameters::default(),
                 ) {
                     Ok(res) => Some(res),
                     Err(_) => {
@@ -145,9 +142,10 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
                 #[cfg(feature = "osc")]
                 match output_text_tx.send(format!("{output_h} {output}")) {
                     Ok(()) => (),
-                    Err(e) => { println!("Error -- sender channel failed {e}"); break; }
+                    Err(e) => { println!("Err -- sender channel failed {e}"); break; }
                 };
             }
+
         }
     }
 }
