@@ -1,6 +1,7 @@
 mod utils;
 
 use eframe::egui;
+//use pipewire::stream::StreamBox;
 
 #[cfg(feature = "osc")]
 use crate::utils::osc;
@@ -9,7 +10,8 @@ use crate::utils::ui;
 use crate::utils::stt;
 
 #[cfg(target_os = "linux")]
-use crate::utils::audio_linux::audio_worker;
+//use crate::utils::audio_linux::audio_worker;
+use crate::utils::audio_linux_replace::audio_worker;
 
 #[cfg(target_os = "windows")]
 use crate::utils::audio_windows::audio_worker;
@@ -28,8 +30,6 @@ fn main() {
 
     #[cfg(feature = "osc")]
     let (output_text_tx, output_text_rx) = mpsc::sync_channel::<String>(8);
-    //#[cfg(feature = "osc")]
-    //println!("osc on!");
 
     // Arc for safety shared data between Threads
     // bool
@@ -53,6 +53,15 @@ fn main() {
     // Transparent
     let transparent_value_t3 = Arc::new(Mutex::new(1.0));
 
+    // audio devices
+    let devices_t1 = Arc::new(Mutex::new(Vec::<String>::new()));
+    let devices_t3 = Arc::clone(&devices_t1);
+
+    let device_selected_t1 = Arc::new(Mutex::new(Option::<String>::None));
+    let device_selected_t3 = Arc::clone(&device_selected_t1);
+
+    // for audio, call this stream to stop and restart only when device changed
+
     // String osc
     #[cfg(feature = "osc")]
     let osc_output_path_t3 = Arc::new(Mutex::new(String::new()));
@@ -66,7 +75,12 @@ fn main() {
 
     // add task for handling audio input
     // t1
-    let audio_thread = thread::spawn(move || audio_worker(tx, is_ui_closed_t1));
+    let audio_thread = thread::spawn(move || audio_worker(
+        tx,
+        is_ui_closed_t1,
+        devices_t1,
+        device_selected_t1,
+    ));
 
     // add task for speech to text
     // t2
@@ -78,14 +92,6 @@ fn main() {
             select_model_t2,
             #[cfg(feature = "osc")]
             output_text_tx,
-    ));
-
-    #[cfg(feature = "osc")]
-    let osc_thread = thread::spawn(move || osc::osc_sender_string(
-            output_text_rx,
-            is_ui_closed_t4,
-            osc_output_path_t4,
-            osc_output_port_t4
     ));
 
     let native_options = eframe::NativeOptions {
@@ -119,6 +125,8 @@ fn main() {
                         select_model_t3,
                         transparent_value_t3,
                         is_ui_closed_t3,
+                        devices_t3,
+                        device_selected_t3,
                     )
                 })
             )
@@ -127,7 +135,16 @@ fn main() {
         Ok(()) => (),
         Err(e) => panic!("Error: {e}"),
     };
-    
+
+    // t4
+    #[cfg(feature = "osc")]
+    let osc_thread = thread::spawn(move || osc::osc_sender_string(
+            output_text_rx,
+            is_ui_closed_t4,
+            osc_output_path_t4,
+            osc_output_port_t4
+    ));
+
     match audio_thread.join() {
         Ok(()) => (),
         Err(e) => panic!("Audio Thread error: {e:?}"),

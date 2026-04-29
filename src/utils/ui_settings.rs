@@ -10,9 +10,9 @@ use egui_file_dialog::{FileDialog, Filter};
 // Settings Window
 impl LiveCaptionRs {
     pub fn settings_window(&mut self, ui: &mut egui::Ui) {
-        let transparent_value = self.settings.get_arc_transparent_value();
+        let arc_transparent_value = self.settings.get_arc_transparent_value();
 
-        let settings_should_open = self.settings.get_arc_settings_should_open_window();
+        let arc_settings_should_open = self.settings.get_arc_settings_should_open_window();
 
         let arc_select_model = self.settings.get_arc_select_model();
         let arc_select_model_dialog = self.settings.get_arc_select_model_dialog();
@@ -26,18 +26,25 @@ impl LiveCaptionRs {
         let arc_save_history_dialog = self.settings.get_arc_save_history_dialog();
         let arc_is_enable_save_history = self.settings.get_arc_is_enable_history();
 
+        let arc_devices = self.settings.get_arc_devices();
+        let arc_device_selected = self.settings.get_arc_device_selected();
+
         ui.ctx().show_viewport_deferred(
             egui::ViewportId::from_hash_of("Settings"), 
             egui::ViewportBuilder::default().with_title("Settings"),
             move |ui, _| {
                 CentralPanel::default().show_inside(ui, |ui| {
+                    LiveCaptionRs::set_combobox_devices(ui, &arc_devices, &arc_device_selected);
+
+                    ui.separator();
+
                     // button to open new window for select model file
                     LiveCaptionRs::set_select_model(ui, &arc_select_model, &arc_select_model_dialog);
 
                     ui.separator();
 
                     // slider - transparent option
-                    let mut value = transparent_value.lock().unwrap();
+                    let mut value = arc_transparent_value.lock().unwrap();
                     LiveCaptionRs::set_slider_transparent(ui, &mut value);
 
                     ui.separator();
@@ -62,10 +69,10 @@ impl LiveCaptionRs {
                 
                 // close settings GUI if "x" button is pressed
                 if ui.ctx().input(|i| i.viewport().close_requested()) {
-                    settings_should_open.store(false, Ordering::Relaxed);
+                    arc_settings_should_open.store(false, Ordering::Relaxed);
                     LiveCaptionRs::save_configuration_file(
                         &arc_select_model,
-                        &transparent_value,
+                        &arc_transparent_value,
 
                         #[cfg(feature = "osc")]
                         &arc_osc_output_path,
@@ -74,9 +81,32 @@ impl LiveCaptionRs {
 
                         &arc_save_history_custom_path,
                         &arc_is_enable_save_history,
+
+                        &arc_devices,
+                        &arc_device_selected,
                     );
                 }
             });
+    }
+
+    // get audio devices and show combobox for user to pick a choice.
+    // this will refresh every time settings is open incase if user plug something
+    #[inline]
+    fn set_combobox_devices(ui: &mut egui::Ui, arc_devices: &Arc<Mutex<Vec<String>>>, arc_selected: &Arc<Mutex<Option<String>>>) {
+        ui.label("Audio Devices, select a device for what should listening on.");
+
+        let mut selected = arc_selected.lock().unwrap().clone();
+        let devices = arc_devices.lock().unwrap().clone();
+
+        ui.horizontal_wrapped(|ui| {
+            egui::ComboBox::from_label("")
+                .selected_text(format!("{selected:?}"))
+                .show_ui(ui, |ui| {
+                    for device in devices {
+                        ui.selectable_value(&mut selected, Some(device), "a");
+                    }
+                })
+        });
     }
 
     // pop up new window for select file model begin with ".bin"
@@ -107,7 +137,7 @@ impl LiveCaptionRs {
                     select_window_dialog.pick_file();
                 }
         });
-            ui.label(format!("Selected model: {}", 
+            ui.label(format!("model: {}", 
                     select_model
                     .lock()
                     .unwrap()
@@ -129,7 +159,7 @@ impl LiveCaptionRs {
     // default: 0.75
     #[inline]
     fn set_slider_transparent(ui: &mut egui::Ui, value: &mut f32) {
-        ui.label("Transparent for background GUI");
+        ui.label("Transparent for background");
 
         ui.horizontal_wrapped(|ui| {
             ui.label("Transparent:");
