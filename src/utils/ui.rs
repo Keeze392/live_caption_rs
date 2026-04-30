@@ -303,15 +303,9 @@ impl LiveCaptionRs {
         };
 
         // load list
-<<<<<<< Updated upstream
-        *self.settings.select_model.lock().unwrap() = unpack_json.select_model.lock().unwrap().take();
-        *self.settings.transparent_value.lock().unwrap() = *unpack_json.transparent_value.lock().unwrap();
-        *self.settings.save_history_custom_path.lock().unwrap() = unpack_json.save_history_custom_path.lock().unwrap().take();
-=======
         *self.settings.select_model.lock().unwrap() = unpack_json.select_model.lock().unwrap().clone();
         *self.settings.transparent_value.lock().unwrap() = unpack_json.transparent_value.lock().unwrap().clone();
         *self.settings.save_history_custom_path.lock().unwrap() = unpack_json.save_history_custom_path.lock().unwrap().clone();
->>>>>>> Stashed changes
         self.settings.is_enable_save_history = unpack_json.is_enable_save_history;
         self.settings.select_device = unpack_json.select_device;
 
