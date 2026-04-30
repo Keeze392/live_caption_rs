@@ -281,8 +281,6 @@ impl LiveCaptionRs {
             Ok(()) => (),
             Err(e) => { eprintln!("Failed to flush the writer {e}"); return; }
         }
-
-        println!("Succ -- config saved!");
     }
     
     // load only at start up GUI.
@@ -305,19 +303,17 @@ impl LiveCaptionRs {
         };
 
         // load list
-        self.settings.select_model = unpack_json.select_model;
-        self.settings.transparent_value = unpack_json.transparent_value;
-        self.settings.save_history_custom_path = unpack_json.save_history_custom_path;
+        *self.settings.select_model.lock().unwrap() = unpack_json.select_model.lock().unwrap().take();
+        *self.settings.transparent_value.lock().unwrap() = *unpack_json.transparent_value.lock().unwrap();
+        *self.settings.save_history_custom_path.lock().unwrap() = unpack_json.save_history_custom_path.lock().unwrap().take();
         self.settings.is_enable_save_history = unpack_json.is_enable_save_history;
         self.settings.select_device = unpack_json.select_device;
 
         #[cfg(feature = "osc")]
         {
-            self.settings.osc_output_path = unpack_json.osc_output_path;
-            self.settings.osc_output_port = unpack_json.osc_output_port;
+            *self.settings.osc_output_path.lock().unwrap() = unpack_json.osc_output_path.lock().unwrap().to_string();
+            *self.settings.osc_output_port.lock().unwrap() = unpack_json.osc_output_port.lock().unwrap().to_string();
         }
-
-        println!("Succ -- config loaded!");
     }
 
     // create or modify exist history file
