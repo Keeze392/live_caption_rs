@@ -105,6 +105,15 @@ fn main() {
         ..Default::default()
     };
 
+    // t4
+    #[cfg(feature = "osc")]
+    let osc_thread = thread::spawn(move || osc::osc_sender_string(
+            output_text_rx,
+            is_ui_closed_t4,
+            osc_output_path_t4,
+            osc_output_port_t4
+    ));
+
     // t3
     match eframe::run_native(
         "Live Caption",
@@ -135,15 +144,6 @@ fn main() {
         Ok(()) => (),
         Err(e) => panic!("Error: {e}"),
     };
-
-    // t4
-    #[cfg(feature = "osc")]
-    let osc_thread = thread::spawn(move || osc::osc_sender_string(
-            output_text_rx,
-            is_ui_closed_t4,
-            osc_output_path_t4,
-            osc_output_port_t4
-    ));
 
     match audio_thread.join() {
         Ok(()) => (),
