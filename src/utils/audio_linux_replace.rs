@@ -92,7 +92,7 @@ pub fn audio_worker(
                 }
             }
         })
-        .state_changed(|_, _, old, new| println!("state: {:?} -> {:?}", old, new))
+        .state_changed(|_, _, old, new| println!("Audio state: {:?} -> {:?}", old, new))
         .register() {
         Ok(l) => l,
         Err(e) => { eprintln!("Err -- Creating add device failed: {e}"); return; },
@@ -125,7 +125,7 @@ pub fn audio_worker(
 
     match stream.connect(
         Direction::Input,
-        Some(51), // ID of device? might easy to pick
+        None,//Some(51), // ID of device? might easy to pick
         StreamFlags::AUTOCONNECT
          | StreamFlags::MAP_BUFFERS
          | StreamFlags::RT_PROCESS,
