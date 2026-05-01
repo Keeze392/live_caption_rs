@@ -5,8 +5,6 @@ pub mod stt;
 
 #[cfg(target_os = "linux")]
 pub mod audio_linux;
-#[cfg(target_os = "linux")]
-pub mod audio_linux_replace;
 
 #[cfg(target_os = "windows")]
 pub mod audio_windows;
