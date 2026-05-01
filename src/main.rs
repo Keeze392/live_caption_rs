@@ -1,7 +1,6 @@
 mod utils;
 
 use eframe::egui;
-//use pipewire::stream::StreamBox;
 
 #[cfg(feature = "osc")]
 use crate::utils::osc;
@@ -10,8 +9,7 @@ use crate::utils::ui;
 use crate::utils::stt;
 
 #[cfg(target_os = "linux")]
-//use crate::utils::audio_linux::audio_worker;
-use crate::utils::audio_linux_replace::audio_worker;
+use crate::utils::audio_linux::{audio_worker, get_devices_array};
 
 #[cfg(target_os = "windows")]
 use crate::utils::audio_windows::audio_worker;
@@ -54,13 +52,19 @@ fn main() {
     let transparent_value_t3 = Arc::new(Mutex::new(1.0));
 
     // audio devices
-    let devices_t1 = Arc::new(Mutex::new(Vec::<String>::new()));
-    let devices_t3 = Arc::clone(&devices_t1);
+    let devices_t3 = Arc::new(Mutex::new(Vec::new()));
+
+    get_devices_array(Arc::clone(&devices_t3));
 
     let device_selected_t1 = Arc::new(Mutex::new(Option::<String>::None));
     let device_selected_t3 = Arc::clone(&device_selected_t1);
 
-    // for audio, call this stream to stop and restart only when device changed
+    // a bool for restart audio to change select device
+    let should_restart_audio_t3 = Arc::new(AtomicBool::new(false));
+
+    // a bool for audio tell main thread that audio thread has exited
+    // then main thread can spawn new thread in order to avoid race condition
+    let thread_exited_ready_t3 = Arc::new(AtomicBool::new(false));
 
     // String osc
     #[cfg(feature = "osc")]
@@ -72,15 +76,6 @@ fn main() {
     let osc_output_port_t3 = Arc::new(Mutex::new(String::new()));
     #[cfg(feature = "osc")]
     let osc_output_port_t4 = Arc::clone(&osc_output_port_t3);
-
-    // add task for handling audio input
-    // t1
-    let audio_thread = thread::spawn(move || audio_worker(
-        tx,
-        is_ui_closed_t1,
-        devices_t1,
-        device_selected_t1,
-    ));
 
     // add task for speech to text
     // t2
@@ -122,7 +117,6 @@ fn main() {
             Ok(
                 Box::new({
                     egui_extras::install_image_loaders(&cc.egui_ctx);
-
                     ui::LiveCaptionRs::new(
                         cc,
                         text_shared_t3,
@@ -136,6 +130,9 @@ fn main() {
                         is_ui_closed_t3,
                         devices_t3,
                         device_selected_t3,
+                        should_restart_audio_t3,
+                        tx,
+                        thread_exited_ready_t3,
                     )
                 })
             )
@@ -143,11 +140,6 @@ fn main() {
     ) {
         Ok(()) => (),
         Err(e) => panic!("Error: {e}"),
-    };
-
-    match audio_thread.join() {
-        Ok(()) => (),
-        Err(e) => panic!("Audio Thread error: {e:?}"),
     };
 
     match stt_thread.join() {
