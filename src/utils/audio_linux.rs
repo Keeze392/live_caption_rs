@@ -120,7 +120,7 @@ pub fn audio_worker(
     // get device id by find match name, this is return "option" so it may none if it fail to find.
     let device_id = get_device_id(&select_device);
 
-    println!("INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic comes first(if is plugged) before system unless you pick monitor)",
+    println!("INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick monitor otherwise does nothing)",
         select_device
             .lock()
             .unwrap()
