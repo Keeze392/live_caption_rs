@@ -1,9 +1,12 @@
+use crate::audio_worker;
+
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex, atomic::AtomicBool};
+use std::sync::{Arc, Mutex, atomic::AtomicBool, mpsc};
 use std::time::Duration;
+use std::thread;
 
 use eframe::egui;
 use egui::{Color32, FontId, RichText, include_image, widgets};
@@ -37,8 +40,13 @@ pub struct LiveCaptionSettingsRs {
     // audio devices
     #[serde(skip)]
     devices: Arc<Mutex<Vec<String>>>,
-
     select_device: Arc<Mutex<Option<String>>>,
+
+    // restart audio when device changed
+    #[serde(skip)]
+    should_restart_audio: Arc<AtomicBool>,
+    #[serde(skip)]
+    thread_exited_ready: Arc<AtomicBool>,
 
     // a bool for settings window to appear
     #[serde(skip)]
@@ -57,6 +65,9 @@ pub struct LiveCaptionRs {
 
     // settings GUI
     pub settings: LiveCaptionSettingsRs,
+
+    // temp channel
+    tx: Option<mpsc::SyncSender<Vec<f32>>>,
 }
 
 // settings GUI
@@ -70,6 +81,8 @@ impl LiveCaptionSettingsRs {
         osc_output_port: Arc<Mutex<String>>,
         devices: Arc<Mutex<Vec<String>>>,
         select_device: Arc<Mutex<Option<String>>>,
+        should_restart_audio: Arc<AtomicBool>,
+        thread_exited_ready: Arc<AtomicBool>,
         ) -> Self {
         Self {
             transparent_value: transparent_value,
@@ -87,6 +100,9 @@ impl LiveCaptionSettingsRs {
 
             devices: devices,
             select_device: select_device,
+
+            should_restart_audio: should_restart_audio,
+            thread_exited_ready: thread_exited_ready,
 
             ..Default::default()
         }
@@ -138,6 +154,10 @@ impl LiveCaptionSettingsRs {
     pub fn get_arc_device_selected(&self) -> Arc<Mutex<Option<String>>> {
         Arc::clone(&self.select_device)
     }
+
+    pub fn get_arc_should_restart_audio(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.should_restart_audio)
+    }
 }
 
 impl LiveCaptionRs {
@@ -152,8 +172,11 @@ impl LiveCaptionRs {
         select_model: Arc<Mutex<Option<PathBuf>>>,
         transparent_value: Arc<Mutex<f32>>,
         is_ui_closed: Arc<AtomicBool>,
-        arc_devices: Arc<Mutex<Vec<String>>>,
-        arc_device_select: Arc<Mutex<Option<String>>>,
+        devices: Arc<Mutex<Vec<String>>>,
+        select_device: Arc<Mutex<Option<String>>>,
+        should_restart_audio: Arc<AtomicBool>,
+        tx: mpsc::SyncSender<Vec<f32>>,
+        thread_exited_ready: Arc<AtomicBool>,
         ) -> Self {
             let ctx = &cc.egui_ctx;
 
@@ -165,7 +188,9 @@ impl LiveCaptionRs {
                 speech_to_text: data_string,
                 speech_to_text_history: data_string_history,
 
-                is_ui_closed: is_ui_closed,
+                is_ui_closed: Arc::clone(&is_ui_closed),
+
+                tx: Some(tx.clone()),
 
                 settings: LiveCaptionSettingsRs::new(
                     select_model,
@@ -174,8 +199,10 @@ impl LiveCaptionRs {
                     osc_output_path,
                     #[cfg(feature = "osc")]
                     osc_output_port,
-                    arc_devices,
-                    arc_device_select,
+                    devices,
+                    Arc::clone(&select_device),
+                    Arc::clone(&should_restart_audio),
+                    Arc::clone(&thread_exited_ready),
                 ),
 
                 ..Default::default()
@@ -183,7 +210,33 @@ impl LiveCaptionRs {
 
             livecaption.load_configuration_file();
 
+            // start audio on startup
+            LiveCaptionRs::spawn_audio_thread(
+                tx,
+                Arc::clone(&livecaption.is_ui_closed),
+                Arc::clone(&livecaption.settings.select_device),
+                Arc::clone(&livecaption.settings.should_restart_audio),
+                Arc::clone(&livecaption.settings.thread_exited_ready),
+            );
+
             livecaption
+    }
+
+    fn spawn_audio_thread(
+        tx: mpsc::SyncSender<Vec<f32>>,
+        is_ui_closed: Arc<AtomicBool>,
+        select_device: Arc<Mutex<Option<String>>>,
+        should_restart_audio: Arc<AtomicBool>,
+        thread_exited_ready: Arc<AtomicBool>,
+    ) {
+
+        let _ = thread::spawn(move || audio_worker(
+            tx,
+            is_ui_closed,
+            select_device,
+            should_restart_audio,
+            thread_exited_ready,
+        ));
     }
 
     // Check if output text rows higher than GUI, remove old line.
@@ -247,7 +300,7 @@ impl LiveCaptionRs {
         select_device: &Arc<Mutex<Option<String>>>,
         ) {
         let config_path: String = match dirs::data_local_dir() {
-            Some(p) => p.to_string_lossy().to_string() + "/livecaption/config.json",
+            Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
             None => { eprintln!("get config path failed"); return; },
         };
 
@@ -267,7 +320,7 @@ impl LiveCaptionRs {
         }
 
         let file = match File::create(config_path) {
-            Ok(f) => f,
+            Ok(val) => val,
             Err(e) => { eprintln!("Failed to create a config file: {e}"); return; },
         };
 
@@ -288,24 +341,24 @@ impl LiveCaptionRs {
     #[inline]
     pub fn load_configuration_file(&mut self) {
         let config_path: String = match dirs::data_local_dir() {
-            Some(p) => p.to_string_lossy().to_string() + "/livecaption/config.json",
+            Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
             None => { eprintln!("Error -- get config path failed"); return; },
         };       
 
         let file = match fs::read_to_string(config_path) {
-            Ok(f) => f,
+            Ok(val) => val,
             Err(_) => { eprintln!("Skipping -- No confing file to load"); return; }
         };
 
         let unpack_json: LiveCaptionSettingsRs = match serde_json::from_str(&*file) {
-            Ok(d) => d,
+            Ok(val) => val,
             Err(e) => { println!("Error -- Trying unpack json failed: {e}"); return; }
         };
 
         // load list
-        *self.settings.select_model.lock().unwrap() = unpack_json.select_model.lock().unwrap().clone();
+        *self.settings.select_model.lock().unwrap() = unpack_json.select_model.lock().unwrap().take();
         *self.settings.transparent_value.lock().unwrap() = unpack_json.transparent_value.lock().unwrap().clone();
-        *self.settings.save_history_custom_path.lock().unwrap() = unpack_json.save_history_custom_path.lock().unwrap().clone();
+        *self.settings.save_history_custom_path.lock().unwrap() = unpack_json.save_history_custom_path.lock().unwrap().take();
         self.settings.is_enable_save_history = unpack_json.is_enable_save_history;
         self.settings.select_device = unpack_json.select_device;
 
@@ -324,7 +377,7 @@ impl LiveCaptionRs {
         ) {
         let date = time::OffsetDateTime::now_utc();
         let docs_path = match dirs::document_dir() {
-            Some(d) => d,
+            Some(val) => val,
             None => { eprintln!("Error -- No docs path found, skipping the save, please use custom path."); return; },
         };
 
@@ -364,7 +417,7 @@ impl LiveCaptionRs {
             .append(true)
             .create(true)
             .open(&name_with_date) {
-                Ok(f) => f,
+                Ok(val) => val,
                 Err(e) => { eprintln!("Error -- Failed to create history file: {e}"); return; }
             };
 
@@ -408,17 +461,17 @@ impl eframe::App for LiveCaptionRs {
             .min_size(0.0)
             .show_inside(ui,
             |ui| {
-                    let squard_size: f32 = 32.5;
-                    let b_settings = ui.add(widgets::Button::image(
-                            include_image!("../settings-icon-2.png"))
-                                .min_size(egui::vec2(squard_size, squard_size)
-                            )
-                            .fill(egui::Color32::TRANSPARENT)
-                    );
-                    
-                    if b_settings.clicked() {
-                        self.settings.should_open_window.store(true, Ordering::Relaxed);
-                    }
+                let squard_size: f32 = 32.5;
+                let b_settings = ui.add(widgets::Button::image(
+                        include_image!("../settings-icon-2.png"))
+                            .min_size(egui::vec2(squard_size, squard_size)
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                );
+                
+                if b_settings.clicked() {
+                    self.settings.should_open_window.store(true, Ordering::Relaxed);
+                }
         });
 
         // Label from speech to text
@@ -441,6 +494,26 @@ impl eframe::App for LiveCaptionRs {
         // Settings Window will open if true
         if self.settings.should_open_window.load(Ordering::Relaxed) {
             self.settings_window(ui);
+        }
+
+        // checking if trigger received that audio needs to restart for target device
+        if self.settings.should_restart_audio.load(Ordering::Relaxed) &&
+            self.settings.thread_exited_ready.load(Ordering::Relaxed) {
+
+            println!("DETECT -- Device has changed! -- Audio restarting...");
+
+            // clone the Arc before give to thread
+            LiveCaptionRs::spawn_audio_thread(
+                self.tx.clone().expect("Err -- What? not work? how! -- Channel clone failed"),
+                Arc::clone(&self.is_ui_closed),
+                Arc::clone(&self.settings.select_device),
+                Arc::clone(&self.settings.should_restart_audio),
+                Arc::clone(&self.settings.thread_exited_ready),
+            );
+
+            // restart done! set back to false
+            self.settings.should_restart_audio.store(false, Ordering::Relaxed);
+            self.settings.thread_exited_ready.store(false, Ordering::Relaxed);
         }
 
         // limited to 50 fps, think enough.

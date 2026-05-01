@@ -28,18 +28,29 @@ impl LiveCaptionRs {
 
         let arc_devices = self.settings.get_arc_devices();
         let arc_device_selected = self.settings.get_arc_device_selected();
+        let arc_should_restart_audio = self.settings.get_arc_should_restart_audio();
 
         ui.ctx().show_viewport_deferred(
             egui::ViewportId::from_hash_of("Settings"), 
             egui::ViewportBuilder::default().with_title("Settings"),
             move |ui, _| {
                 CentralPanel::default().show_inside(ui, |ui| {
-                    LiveCaptionRs::set_combobox_devices(ui, &arc_devices, &arc_device_selected);
+                    // devices list to pick one device for listening
+                    LiveCaptionRs::set_combobox_devices(
+                        ui,
+                        &arc_devices,
+                        &arc_device_selected,
+                        &arc_should_restart_audio
+                    );
 
                     ui.separator();
 
                     // button to open new window for select model file
-                    LiveCaptionRs::set_select_model(ui, &arc_select_model, &arc_select_model_dialog);
+                    LiveCaptionRs::set_select_model(
+                        ui,
+                        &arc_select_model,
+                        &arc_select_model_dialog
+                    );
 
                     ui.separator();
 
@@ -60,7 +71,11 @@ impl LiveCaptionRs {
                     }
 
                     // save output text to history file
-                    LiveCaptionRs::set_save_history_custom_path(ui, &arc_save_history_custom_path, &arc_save_history_dialog);
+                    LiveCaptionRs::set_save_history_custom_path(
+                        ui,
+                        &arc_save_history_custom_path,
+                        &arc_save_history_dialog
+                    );
 
                     LiveCaptionRs::set_is_enable_save_history(ui, &arc_is_enable_save_history);
 
@@ -84,28 +99,46 @@ impl LiveCaptionRs {
 
                         &arc_device_selected,
                     );
-                }
+                    
+                    println!("INFO -- Configuration saved successfully!");
+               }
             });
     }
 
     // get audio devices and show combobox for user to pick a choice.
     // this will refresh every time settings is open incase if user plug something
     #[inline]
-    fn set_combobox_devices(ui: &mut egui::Ui, arc_devices: &Arc<Mutex<Vec<String>>>, arc_selected: &Arc<Mutex<Option<String>>>) {
+    fn set_combobox_devices(
+        ui: &mut egui::Ui,
+        arc_devices: &Arc<Mutex<Vec<String>>>,
+        arc_selected: &Arc<Mutex<Option<String>>>,
+        should_restart_audio: &Arc<AtomicBool>,
+    ) {
         ui.label("Audio Devices, select a device for what should listening on.");
 
         let mut selected = arc_selected.lock().unwrap().clone();
         let devices = arc_devices.lock().unwrap().clone();
+        let before = selected.clone();
 
         ui.horizontal_wrapped(|ui| {
             egui::ComboBox::from_label("")
-                .selected_text(format!("{selected:?}"))
+                .selected_text(format!("{}",
+                    selected
+                        .clone()
+                        .unwrap_or("None".to_string())))
                 .show_ui(ui, |ui| {
                     for device in devices {
-                        ui.selectable_value(&mut selected, Some(device), "a");
+                        ui.selectable_value(&mut selected, Some(device.clone()), format!("{}", device));
                     }
                 })
         });
+
+        // has device changed? send trigger restart the audio
+        if selected != before {
+            should_restart_audio.store(true, Ordering::Relaxed);
+        }
+
+        *arc_selected.lock().unwrap() = selected;
     }
 
     // pop up new window for select file model begin with ".bin"
