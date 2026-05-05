@@ -4,9 +4,6 @@
 ### **About**
 This project is Live caption, it will record any audio and feed the Whisper model to print text on front GUI.
 
-### **INFO**
-Cross-platform are still work in progress. Currently only support Linux due Audio.
-
 ### **Features**
 - Support AMD GPU
 - Support NVIDIA GPU
