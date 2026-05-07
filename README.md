@@ -13,7 +13,7 @@ This project is Live caption, it will record any audio and feed the Whisper mode
 - Save History, Default save file is in Documents path.
 
 ### **How to use**
-You can download by [Release](https://github.com/Keeze392/live_caption_rs/releases/tag/0.1.0). \
+You can download by [Release](https://github.com/Keeze392/live_caption_rs/releases/tag/0.1.1). \
 If you have Nvidia GPU -> pick cuda \
 If you have AMD GPU -> pick vulkan \
 If none of above or you wish without GPU -> pick CPU
