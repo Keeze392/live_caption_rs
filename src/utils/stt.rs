@@ -4,6 +4,7 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 
 const RATE: usize = 16000;
 
+// adjust time if you wish short or long
 const VEC_MINIMUM_SECS: usize = 2;
 const VEC_MAXIMUM_SECS: usize = 4;
 
@@ -17,8 +18,6 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
     output_text_history: Arc<Mutex<String>>,
     is_ui_closed: Arc<AtomicBool>,
     select_model: Arc<Mutex<Option<PathBuf>>>,
-    #[cfg(feature = "osc")]
-    output_text_tx: mpsc::SyncSender<String>,
     ) {
     // init
     let mut buffer_live: Vec<f32> = Vec::new();
@@ -30,22 +29,36 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
     whisper_rs::install_logging_hooks();
 
     // start working
-    while !is_ui_closed.load(Ordering::Relaxed) {
+    while !is_ui_closed.load(Ordering::Acquire) {
         // get path
-        let new_path_model = {
-            let model_path = select_model.lock().unwrap();
-            model_path.clone()
-        };
+        let new_path_model = select_model
+            .lock()
+            .unwrap()
+            .clone();
 
         // check if new path for model file, start change to use new model
         if let Some(path) = new_path_model {
             let file = path.to_string_lossy();
 
+            // cow? it said moo.
+            let file = match file {
+                std::borrow::Cow::Borrowed(val) => val.to_string(),
+                std::borrow::Cow::Owned(val) => val,
+            };
+
+            // check if file is available in that path
+            if !std::fs::exists(&file).unwrap_or(true) {
+                eprintln!("No file found in this path: {file}\nPlease go to settings to pick file path for stt model");
+                sleep(Duration::from_secs(1));
+                continue;
+            }
+
+            // change select model if it has been select different
             if file != model_file {
-                model_file = file.into_owned();
+                model_file = file;
 
                 ctx = match WhisperContext::new_with_params(
-                    model_file.clone(),
+                    &model_file,
                     WhisperContextParameters::default(),
                 ) {
                     Ok(res) => Some(res),
@@ -137,15 +150,7 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
 
                 let mut output_h = output_text_history.lock().unwrap();
                 output_h.push_str(&full_text_history);
-
-                // send output text to OSC
-                #[cfg(feature = "osc")]
-                match output_text_tx.send(format!("{output_h} {output}")) {
-                    Ok(()) => (),
-                    Err(e) => { println!("Err -- sender channel failed {e}"); break; }
-                };
             }
-
         }
     }
 }
@@ -153,7 +158,10 @@ pub fn worker(rx: mpsc::Receiver<Vec<f32>>,
 fn task_whisper(whisper: &mut WhisperState, params: FullParams, buffer: &mut Vec<f32>) -> String {
     match whisper.full(params, &buffer) {
         Ok(()) => (),
-        Err(e) => eprintln!("Err -- running task whisper failed: {e}"),
+        Err(e) => {
+            eprintln!("Err -- running task whisper failed: {e}");
+            return "".into();
+        },
     };
 
     let mut output_text = String::new();
@@ -203,4 +211,21 @@ fn is_junk(text: &String) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_junk() {
+        let junk_words = String::from("bye.");
+        assert!(is_junk(&junk_words));
+    }
+
+    #[test]
+    fn test_is_not_junk() {
+        let good_words = String::from("Hello how are you? i see, bye.");
+        assert!(!is_junk(&good_words));
+    }
 }
