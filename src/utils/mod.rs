@@ -1,5 +1,6 @@
 pub mod ui;
 pub mod ui_settings;
+pub mod osc;
 
 pub mod stt;
 
@@ -11,6 +12,3 @@ pub mod audio_windows;
 
 #[cfg(target_os = "macos")]
 pub mod audio_macos;
-
-#[cfg(feature = "osc")]
-pub mod osc;
