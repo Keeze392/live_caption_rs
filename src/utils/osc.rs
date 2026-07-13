@@ -26,7 +26,15 @@ impl OSCSender {
     }
 
     pub fn set_port(&mut self, arc_output_port: &Arc<Mutex<String>>) {
-        self.osc_output_port = arc_output_port.lock().unwrap().clone();
+        let temp = arc_output_port.lock().unwrap().clone();
+
+        // not accept any char other than numbers
+        if !temp.chars().all(|val| val.is_numeric()) {
+            eprintln!("ERR -- OSC port accept only numbers");
+            return;
+        }
+
+        self.osc_output_port = temp;
     }
 
     // for sending with path and port to local ip only
@@ -86,6 +94,19 @@ mod test {
         osc_struct_test.set_path(&Arc::new(Mutex::new("/blah_blah".into())));
         
         assert_eq!(String::from("/blah_blah"), osc_struct_test.osc_output_path);
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_port_test_fail() {
+        let mut osc_struct_test = OSCSender::new(
+            &Arc::new(Mutex::new("".into())),
+            &Arc::new(Mutex::new("".into()))
+        );
+
+        osc_struct_test.set_port(&Arc::new(Mutex::new("abc".into())));
+
+        assert_eq!("abc", osc_struct_test.osc_output_port);
     }
 
     #[test]
