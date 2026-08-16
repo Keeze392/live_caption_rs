@@ -1,9 +1,25 @@
-use std::{sync::{Arc, Mutex, atomic::{AtomicBool, Ordering::{Release, Acquire}}, mpsc}, time::Duration};
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{
+            AtomicBool,
+            Ordering::{Acquire, Release},
+        },
+        mpsc,
+    }, thread::{self, JoinHandle}, time::Duration,
+};
 
 use nnnoiseless::DenoiseState;
-use pipewire::{context::ContextBox, main_loop::MainLoopRc, properties::properties,
-    spa::{param::audio::{AudioFormat, AudioInfoRaw}, pod::Pod,
-    utils::Direction}, stream::{StreamBox, StreamFlags}
+use pipewire::{
+    context::ContextBox,
+    main_loop::MainLoopRc,
+    properties::properties,
+    spa::{
+        param::audio::{AudioFormat, AudioInfoRaw},
+        pod::Pod,
+        utils::Direction,
+    },
+    stream::{StreamBox, StreamFlags},
 };
 use resampler::{ResamplerFir, SampleRate};
 
@@ -21,7 +37,7 @@ const OUTPUT_RESAMPLE_RATE: SampleRate = SampleRate::Hz16000;
 const SAMPLE_CHUNK: u32 = SAMPLE_RATE / 2;
 
 // loop handling audio and send data to channel
-pub fn audio_worker(
+/*pub fn audio_worker(
     tx: mpsc::SyncSender<Vec<f32>>,
     is_ui_closed: Arc<AtomicBool>,
     select_device: Arc<Mutex<Option<String>>>,
@@ -30,17 +46,26 @@ pub fn audio_worker(
 ) {
     let mainloop = match MainLoopRc::new(None) {
         Ok(m) => m,
-        Err(e) => { eprintln!("Err -- Creating mainloop failed: {e}"); return; },
+        Err(e) => {
+            eprintln!("Err -- Creating mainloop failed: {e}");
+            return;
+        }
     };
 
     let context = match ContextBox::new(&mainloop.loop_(), None) {
         Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Creating context failed: {e}"); return; },
+        Err(e) => {
+            eprintln!("Err -- Creating context failed: {e}");
+            return;
+        }
     };
 
     let core = match context.connect(None) {
         Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Creating connecting failed: {e}"); return; },
+        Err(e) => {
+            eprintln!("Err -- Creating connecting failed: {e}");
+            return;
+        }
     };
 
     let props = properties! {
@@ -54,7 +79,10 @@ pub fn audio_worker(
 
     let stream = match StreamBox::new(&core, "audio-capture", props) {
         Ok(s) => s,
-        Err(e) => { eprintln!("Err -- Creating stream failed: {e}"); return; },
+        Err(e) => {
+            eprintln!("Err -- Creating stream failed: {e}");
+            return;
+        }
     };
 
     // create own buffer for holding until minimum require to send the channel
@@ -66,11 +94,11 @@ pub fn audio_worker(
     // for downsample from 48khz to 16khz
     // it need stay here and give to function without creating everytime call function
     let mut downsampler = ResamplerFir::new(
-        CHANNEL as usize, 
+        CHANNEL as usize,
         INPUT_RESAMPLE_RATE,
         OUTPUT_RESAMPLE_RATE,
         resampler::Latency::Sample64,
-        resampler::Attenuation::default()
+        resampler::Attenuation::default(),
     );
 
     let _listener = match stream
@@ -82,7 +110,9 @@ pub fn audio_worker(
                 for data in inside_buffer.datas_mut() {
                     let chunk = data.chunk();
                     let size = chunk.size() as usize;
-                    if size == 0 { continue; }
+                    if size == 0 {
+                        continue;
+                    }
 
                     let Some(bytes) = data.data() else {
                         continue;
@@ -116,9 +146,13 @@ pub fn audio_worker(
             }
         })
         .state_changed(|_, _, old, new| println!("INFO -- Audio State: {:?} -> {:?}", old, new))
-        .register() {
+        .register()
+    {
         Ok(l) => l,
-        Err(e) => { eprintln!("Err -- Creating add device failed: {e}"); return; },
+        Err(e) => {
+            eprintln!("Err -- Creating add device failed: {e}");
+            return;
+        }
     };
 
     let mut audio_info = AudioInfoRaw::new();
@@ -136,7 +170,10 @@ pub fn audio_worker(
         }),
     ) {
         Ok((a, b)) => (a, b),
-        Err(e) => { eprintln!("Err -- Pod serialize failed: {e}"); return; },
+        Err(e) => {
+            eprintln!("Err -- Pod serialize failed: {e}");
+            return;
+        }
     }
     .0
     .into_inner();
@@ -146,37 +183,44 @@ pub fn audio_worker(
     // get device id by find match name, this is return "option" so it may none if it fail to find.
     let device_id = get_device_id(&select_device);
 
-    println!("INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick monitor otherwise does nothing)",
+    println!(
+        "INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick monitor otherwise does nothing)",
         select_device
             .lock()
             .unwrap()
             .clone()
-            .unwrap_or("None".to_string()));
+            .unwrap_or("None".to_string())
+    );
 
     println!("INFO -- Audio Thread has starting!");
 
     match stream.connect(
         Direction::Input,
         device_id,
-         StreamFlags::MAP_BUFFERS |
-         StreamFlags::RT_PROCESS,
+        StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
         &mut params,
     ) {
         Ok(()) => (),
-        Err(e) => { eprintln!("Err -- Creating stream failed: {e}"); return; },
+        Err(e) => {
+            eprintln!("Err -- Creating stream failed: {e}");
+            return;
+        }
     };
 
     let mainloop_clone = mainloop.clone();
 
     // add timer to keep eye on check if flag has been set.
     let timer = mainloop.loop_().add_timer(move |_| {
-        if should_restart_audio.load(Acquire) || is_ui_closed.load(Acquire)  {
+        if should_restart_audio.load(Acquire) || is_ui_closed.load(Acquire) {
             mainloop_clone.quit();
             thread_exited_ready.store(true, Release);
         }
     });
 
-    timer.update_timer(Some(Duration::from_millis(50)), Some(Duration::from_millis(50)));
+    timer.update_timer(
+        Some(Duration::from_millis(50)),
+        Some(Duration::from_millis(50)),
+    );
 
     mainloop.run();
 
@@ -184,7 +228,9 @@ pub fn audio_worker(
 }
 
 fn is_silent(audio_data: &[f32]) -> bool {
-    if audio_data.is_empty() { return true; }
+    if audio_data.is_empty() {
+        return true;
+    }
 
     let sum_squares: f32 = audio_data.iter().map(|x| x * x).sum();
     let rms = (sum_squares / audio_data.len() as f32).sqrt();
@@ -231,90 +277,41 @@ fn downsample_audio(mut audio_data: &[f32], downsampler: &mut ResamplerFir) -> V
     }
 
     full_output
-}
+}*/
 
-// get all audio devcies/other that pipewire see.
-pub fn get_devices_array(devices_array: Arc<Mutex<Vec<String>>>) {
-    let mainloop = match MainLoopRc::new(None) {
-        Ok(m) => m,
-        Err(e) => { eprintln!("Err -- Creating mainloop failed: {e}"); return; },
-    };
-
-    let context = match ContextBox::new(&mainloop.loop_(), None) {
-        Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Creating context failed: {e}"); return; },
-    };
-
-    let core = match context.connect(None) {
-        Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Creating connecting failed: {e}"); return; },
-    };
-
-    let registry = match core.get_registry() {
-        Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Getting registry failed: {e}"); return; },
-    };
-
-    devices_array.lock().unwrap().push("None".to_string());
-
-    let _listener = registry
-        .add_listener_local()
-        .global(move |g| {
-            if let Some(props) = &g.props {
-                let mut safe_array = devices_array.lock().unwrap();
-
-                /*if let Some(name) = props.get("application.name") {
-                    if !name.is_empty() && !safe_array.contains(&name.to_string()) {
-                        safe_array
-                            .push(name.to_string());
-                    }
-                }*/
-
-                if let Some(name) = props.get("device.description") {
-                    if !name.is_empty() && !safe_array.contains(&name.to_string()) {
-                        safe_array
-                            .push(name.to_string());
-                    }
-                }
-
-                if let Some(name) = props.get("node.description") {
-                    if !name.is_empty() && !safe_array.contains(&name.to_string()) {
-                        safe_array
-                            .push(name.to_string());
-                    }
-                }
-            }
-        })
-        .register();
-
-    let mainloop_clone = mainloop.clone();
-
-    let timer = mainloop.loop_().add_timer(move |_| mainloop_clone.quit());
-    timer.update_timer(Some(Duration::from_millis(300)), None);
-
-    mainloop.run();
-}
 
 // get id by find match name of device/app/other
-fn get_device_id(device: &Arc<Mutex<Option<String>>>) -> Option<u32> {
+/*fn get_device_id(device: &Arc<Mutex<Option<String>>>) -> Option<u32> {
     let mainloop = match MainLoopRc::new(None) {
         Ok(m) => m,
-        Err(e) => { eprintln!("Err -- Creating mainloop failed: {e}"); return None; },
+        Err(e) => {
+            eprintln!("Err -- Creating mainloop failed: {e}");
+            return None;
+        }
     };
 
     let context = match ContextBox::new(&mainloop.loop_(), None) {
         Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Creating context failed: {e}"); return None; },
+        Err(e) => {
+            eprintln!("Err -- Creating context failed: {e}");
+            return None;
+        }
     };
 
     let core = match context.connect(None) {
         Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Creating connecting failed: {e}"); return None; },
+        Err(e) => {
+            eprintln!("Err -- Creating connecting failed: {e}");
+            return None;
+        }
     };
 
     let registry = match core.get_registry() {
         Ok(c) => c,
-        Err(e) => { eprintln!("Err -- Getting registry failed: {e}"); return None; },
+        Err(e) => {
+            eprintln!("Err -- Getting registry failed: {e}");
+            return None;
+        }
     };
 
     let device_name = match device.lock().unwrap().clone() {
@@ -359,27 +356,42 @@ fn get_device_id(device: &Arc<Mutex<Option<String>>>) -> Option<u32> {
 
     // return option<u32>
     *get_id_clone.lock().unwrap()
-}
+}*/
 
-/*struct AudioWorker {
-    mainloop: MainLoopRc,
+pub struct AudioWorker {
+    select_device: Arc<Mutex<Option<String>>>,
+    should_restart_audio: Arc<AtomicBool>,
+    is_ui_closed: Arc<AtomicBool>,
+    thread_exited_ready: Arc<AtomicBool>,
 }
 
 impl AudioWorker {
-    fn new() -> Self {
-        Self {
-            mainloop: MainLoopRc::new(None).expect("failed to create mainloop"),
-        }
-    }
-
-    fn audio_loop(
-        &mut self,
+    pub fn new(
         select_device: Arc<Mutex<Option<String>>>,
         should_restart_audio: Arc<AtomicBool>,
         is_ui_closed: Arc<AtomicBool>,
         thread_exited_ready: Arc<AtomicBool>,
-    ) {
-        let context = match ContextBox::new(&self.mainloop.loop_(), None) {
+    ) -> Self {
+        Self {
+            select_device: select_device,
+            should_restart_audio: should_restart_audio,
+            is_ui_closed: is_ui_closed,
+            thread_exited_ready: thread_exited_ready,
+        }
+    }
+    
+    // Spawn new Thread to run background loop.
+    pub fn spawn(self, tx: mpsc::SyncSender<Vec<f32>>) ->  JoinHandle<()> {
+        thread::spawn(move || self.run(tx))
+    }
+
+    fn run(self, tx: mpsc::SyncSender<Vec<f32>>) {
+        let mainloop = match MainLoopRc::new(None) {
+            Ok(val) => val,
+            Err(e) => { eprintln!("Err -- Creating mainloop failed: {e}"); return; },
+        };
+
+        let context = match ContextBox::new(&mainloop.loop_(), None) {
             Ok(c) => c,
             Err(e) => { eprintln!("Err -- Creating context failed: {e}"); return; },
         };
@@ -413,9 +425,16 @@ impl AudioWorker {
             CHANNEL as usize,
             INPUT_RESAMPLE_RATE,
             OUTPUT_RESAMPLE_RATE,
-            Latency::default(),
-            Attenuation::default()
+            resampler::Latency::Sample64,
+            resampler::Attenuation::default()
         );
+
+        // clone for some stuff at near end of close bracket before move self outside.
+        let mainloop_clone = mainloop.clone();
+        let should_restart_audio_clone = Arc::clone(&self.should_restart_audio);
+        let is_ui_closed_clone = Arc::clone(&self.is_ui_closed);
+        let thread_exited_ready_clone = Arc::clone(&self.thread_exited_ready);
+        let select_device_clone = Arc::clone(&self.select_device);
 
         let _listener = match stream
         .add_local_listener::<()>()
@@ -449,12 +468,11 @@ impl AudioWorker {
 
                         // check if it's silence samples, no need clear
                         // cause out of scope meaning temp_buffer will dropped.
-                        if !AudioWorker::is_silent(&temp_buffer) {
-                            // TODO: fix channel
-                            /*match tx.send(temp_buffer) {
+                        if !self.is_silent_rms(&temp_buffer) {
+                            match tx.send(temp_buffer) {
                                 Ok(()) => (),
                                 Err(_) => continue,
-                            }*/
+                            }
                         }
                     }
                 }
@@ -489,10 +507,10 @@ impl AudioWorker {
         let mut params = [Pod::from_bytes(&values).unwrap()];
 
         // get device id by find match name, this is return "option" so it may none if it fail to find.
-        let device_id = get_device_id(&select_device);
+        let device_id = Self::get_device_id(&select_device_clone);
 
         println!("INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick monitor otherwise does nothing)",
-            select_device
+                select_device_clone
                 .lock()
                 .unwrap()
                 .clone()
@@ -511,24 +529,24 @@ impl AudioWorker {
             Err(e) => { eprintln!("Err -- Creating stream failed: {e}"); return; },
         };
 
-        let mainloop_clone = self.mainloop.clone();
-
         // add timer to keep eye on check if flag has been set.
-        let timer = self.mainloop.loop_().add_timer(move |_| {
-            if should_restart_audio.load(Acquire) || is_ui_closed.load(Acquire)  {
+        let timer = mainloop.loop_().add_timer(move |_| {
+            if should_restart_audio_clone.load(Acquire) || is_ui_closed_clone.load(Acquire)  {
                 mainloop_clone.quit();
-                thread_exited_ready.store(true, Release);
+                thread_exited_ready_clone.store(true, Release);
             }
         });
 
         timer.update_timer(Some(Duration::from_millis(50)), Some(Duration::from_millis(50)));
 
-        self.mainloop.run();
+        mainloop.run();
 
         println!("INFO -- Audio Thread has exited successfully!");
     }
 
-    // RNNoise, is it high quality to kill any background noises
+    /// RNNoise, is it high quality to kill any background noises.
+    /// # Information
+    /// edited: (apparently it wasn't high quality model by default lol)
     #[inline]
     fn denoise(audio_data: &[f32], denoise_state: &mut DenoiseState) -> Vec<f32> {
         let mut output: Vec<f32> = Vec::new();
@@ -547,7 +565,7 @@ impl AudioWorker {
         output
     }
 
-    // resample 48khz -> 16khz for Whisper requirement and keep channel only 1
+    /// Resample 48khz to 16khz for meet Whisper's requirement also keeping the channel at 1.
     #[inline]
     fn downsample_audio(mut audio_data: &[f32], resample_fir: &mut ResamplerFir) -> Vec<f32> {
         let mut full_output: Vec<f32> = Vec::new();
@@ -565,7 +583,8 @@ impl AudioWorker {
         full_output
     }
 
-    fn is_silent(audio_data: &[f32]) -> bool {
+    /// return true if audio level is too below the minimum requirement.
+    fn is_silent_rms(&self, audio_data: &[f32]) -> bool {
         if audio_data.is_empty() { return true; }
 
         let sum_squares: f32 = audio_data.iter().map(|x| x * x).sum();
@@ -575,9 +594,14 @@ impl AudioWorker {
         rms < 0.003
     }
 
-    // get id by find match name of device/app/other
-    fn get_device_id(&self, device: &Arc<Mutex<Option<String>>>) -> Option<u32> {
-        let context = match ContextBox::new(&self.mainloop.loop_(), None) {
+    /// get id by find match name of device/app/other
+    fn get_device_id(select_device: &Arc<Mutex<Option<String>>>) -> Option<u32> {
+        let mainloop = match MainLoopRc::new(None) {
+            Ok(val) => val,
+            Err(e) => { eprintln!("Err -- Creating mainloop failed: {e}"); return None; },
+        };
+
+        let context = match ContextBox::new(mainloop.loop_(), None) {
             Ok(c) => c,
             Err(e) => { eprintln!("Err -- Creating context failed: {e}"); return None; },
         };
@@ -592,7 +616,7 @@ impl AudioWorker {
             Err(e) => { eprintln!("Err -- Getting registry failed: {e}"); return None; },
         };
 
-        let device_name = match device.lock().unwrap().clone() {
+        let device_name = match select_device.lock().unwrap().clone() {
             Some(val) => val,
             None => return None,
         };
@@ -625,14 +649,86 @@ impl AudioWorker {
             })
             .register();
 
-        let mainloop_clone = self.mainloop.clone();
+        let mainloop_clone = mainloop.clone();
 
-        let timer = self.mainloop.loop_().add_timer(move |_| mainloop_clone.quit());
+        let timer = mainloop.loop_().add_timer(move |_| mainloop_clone.quit());
         timer.update_timer(Some(Duration::from_millis(300)), None);
 
-        self.mainloop.run();
+        mainloop.run();
 
         // return option<u32>
         *get_id_clone.lock().unwrap()
     }
-}*/
+
+    // get all audio devcies/other that pipewire see.
+    pub fn get_devices_array(devices_array: Arc<Mutex<Vec<String>>>) {
+        let mainloop = match MainLoopRc::new(None) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Err -- Creating mainloop failed: {e}");
+                return;
+            }
+        };
+
+        let context = match ContextBox::new(&mainloop.loop_(), None) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Err -- Creating context failed: {e}");
+                return;
+            }
+        };
+
+        let core = match context.connect(None) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Err -- Creating connecting failed: {e}");
+                return;
+            }
+        };
+
+        let registry = match core.get_registry() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Err -- Getting registry failed: {e}");
+                return;
+            }
+        };
+
+        devices_array.lock().unwrap().push("None".to_string());
+
+        let _listener = registry
+            .add_listener_local()
+            .global(move |g| {
+                if let Some(props) = &g.props {
+                    let mut safe_array = devices_array.lock().unwrap();
+
+                    /*if let Some(name) = props.get("application.name") {
+                        if !name.is_empty() && !safe_array.contains(&name.to_string()) {
+                            safe_array
+                                .push(name.to_string());
+                        }
+                    }*/
+
+                    if let Some(name) = props.get("device.description") {
+                        if !name.is_empty() && !safe_array.contains(&name.to_string()) {
+                            safe_array.push(name.to_string());
+                        }
+                    }
+
+                    if let Some(name) = props.get("node.description") {
+                        if !name.is_empty() && !safe_array.contains(&name.to_string()) {
+                            safe_array.push(name.to_string());
+                        }
+                    }
+                }
+            })
+            .register();
+
+        let mainloop_clone = mainloop.clone();
+
+        let timer = mainloop.loop_().add_timer(move |_| mainloop_clone.quit());
+        timer.update_timer(Some(Duration::from_millis(300)), None);
+
+        mainloop.run();
+    }
+}
