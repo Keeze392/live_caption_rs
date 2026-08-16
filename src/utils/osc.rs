@@ -1,5 +1,8 @@
 use rosc::{OscMessage, OscPacket, OscType, encoder};
-use std::{net::UdpSocket, sync::{Arc, Mutex}};
+use std::{
+    net::UdpSocket,
+    sync::{Arc, Mutex},
+};
 
 pub struct OSCSender {
     osc_output_path: String,
@@ -41,14 +44,17 @@ impl OSCSender {
     pub fn send(&self, text: String) {
         let msg = OscMessage {
             addr: self.osc_output_path.clone(),
-            args: vec![OscType::String(text)]
+            args: vec![OscType::String(text)],
         };
 
         let packet = OscPacket::Message(msg);
 
         let buf = match encoder::encode(&packet) {
             Ok(val) => val,
-            Err(e) => { eprintln!("OSC Err -- encoding a packet failed: {e}"); return; }
+            Err(e) => {
+                eprintln!("OSC Err -- encoding a packet failed: {e}");
+                return;
+            }
         };
 
         if !self.osc_output_port.is_empty() {
@@ -56,7 +62,10 @@ impl OSCSender {
 
             match self.socket.send_to(&buf, full_addr_target) {
                 Ok(_) => (),
-                Err(e) => { eprintln!("OSC Err -- Sending failed: {e}"); return; }
+                Err(e) => {
+                    eprintln!("OSC Err -- Sending failed: {e}");
+                    return;
+                }
             }
         }
     }
@@ -86,41 +95,32 @@ mod test {
     fn set_path_test() {
         let mut osc_struct_test = OSCSender::new(
             &Arc::new(Mutex::new("".into())),
-            &Arc::new(Mutex::new("".into()))
+            &Arc::new(Mutex::new("".into())),
         );
 
         assert_eq!(String::from(""), osc_struct_test.osc_output_path);
 
         osc_struct_test.set_path(&Arc::new(Mutex::new("/blah_blah".into())));
-        
+
         assert_eq!(String::from("/blah_blah"), osc_struct_test.osc_output_path);
-    }
-
-    #[test]
-    #[should_panic]
-    fn set_port_test_fail() {
-        let mut osc_struct_test = OSCSender::new(
-            &Arc::new(Mutex::new("".into())),
-            &Arc::new(Mutex::new("".into()))
-        );
-
-        osc_struct_test.set_port(&Arc::new(Mutex::new("abc".into())));
-
-        assert_eq!("abc", osc_struct_test.osc_output_port);
     }
 
     #[test]
     fn set_port_test() {
         let mut osc_struct_test = OSCSender::new(
             &Arc::new(Mutex::new("".into())),
-            &Arc::new(Mutex::new("".into()))
+            &Arc::new(Mutex::new("".into())),
         );
 
         assert_eq!(String::from(""), osc_struct_test.osc_output_port);
 
         osc_struct_test.set_port(&Arc::new(Mutex::new("9009".into())));
-        
+
         assert_eq!(String::from("9009"), osc_struct_test.osc_output_port);
+
+        osc_struct_test.set_port(&Arc::new(Mutex::new("abc".into())));
+
+        assert_ne!("abc", osc_struct_test.osc_output_port);
     }
 
     // i don't know if this is good idea or design
@@ -129,7 +129,7 @@ mod test {
     fn socket_test() {
         let osc_struct_test = OSCSender::new(
             &Arc::new(Mutex::new("".into())),
-            &Arc::new(Mutex::new("".into()))
+            &Arc::new(Mutex::new("".into())),
         );
 
         assert!(osc_struct_test.socket.local_addr().unwrap().is_ipv4());
@@ -140,7 +140,7 @@ mod test {
     fn send_test() {
         let osc_struct_test = OSCSender::new(
             &Arc::new(Mutex::new("/say_hi".into())),
-            &Arc::new(Mutex::new("9005".into()))
+            &Arc::new(Mutex::new("9005".into())),
         );
 
         osc_struct_test.send("test test".into());
@@ -148,7 +148,5 @@ mod test {
 
     #[test]
     #[ignore]
-    fn send_to_vrc_test() {
-
-    }
+    fn send_to_vrc_test() {}
 }
