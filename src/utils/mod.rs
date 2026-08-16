@@ -1,6 +1,6 @@
+pub mod osc;
 pub mod ui;
 pub mod ui_settings;
-pub mod osc;
 
 pub mod stt;
 
