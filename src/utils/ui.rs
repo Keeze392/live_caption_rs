@@ -83,10 +83,10 @@ impl LiveCaptionRs {
         thread_exited_ready: Arc<AtomicBool>,
     ) {
         AudioWorker::new(
-                select_device,
-                should_restart_audio,
-                is_ui_closed,
-                thread_exited_ready,
+            select_device,
+            should_restart_audio,
+            is_ui_closed,
+            thread_exited_ready,
         )
         .spawn(tx);
     }
