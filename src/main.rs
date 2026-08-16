@@ -2,25 +2,14 @@ mod utils;
 
 use eframe::egui;
 
-use crate::utils::osc;
-use crate::utils::ui;
-use crate::utils::stt;
+use crate::utils::{osc, stt::WhisperSTT, ui};
 
-#[cfg(target_os = "linux")]
-use crate::utils::audio_linux::{audio_worker, get_devices_array};
-
-// not planned to, so idk when for windows and macos.
-#[cfg(target_os = "windows")]
-use crate::utils::audio_windows::audio_worker;
-
-#[cfg(target_os = "macos")]
-use crate::utils::audio_macos::audio_worker;
+use crate::utils::audio_linux::AudioWorker;
 
 use crate::osc::OSCSender;
 use crate::utils::ui_settings::LiveCaptionSettingsRs;
 
-use std::thread;
-use std::sync::{mpsc, Arc, Mutex, atomic::AtomicBool};
+use std::sync::{Arc, Mutex, atomic::AtomicBool, mpsc};
 
 fn main() {
     env_logger::init();
@@ -45,7 +34,8 @@ fn main() {
     let devices = Arc::new(Mutex::new(Vec::new()));
 
     // fill the devices list to choose a device
-    get_devices_array(Arc::clone(&devices));
+    // so it can pick device from load file
+    AudioWorker::get_devices_array(Arc::clone(&devices));
     let device_selected = Arc::new(Mutex::new(Option::<String>::None));
 
     // a bool for restart audio to change select device
@@ -61,23 +51,18 @@ fn main() {
     let osc_output_port = Arc::new(Mutex::new(String::new()));
 
     // stt - Whisper
-    let stt_text_shared = Arc::clone(&text_shared);
-    let stt_text_shared_history = Arc::clone(&text_shared_history);
-    let stt_is_ui_closed = Arc::clone(&is_ui_closed);
-    let stt_select_model = Arc::clone(&select_model);
+    WhisperSTT::new(
+        rx,
+        Arc::clone(&text_shared),
+        Arc::clone(&text_shared_history),
+        Arc::clone(&is_ui_closed),
+        Arc::clone(&select_model),
+    )
+    .spawn();
 
-    let stt_thread = thread::spawn(move || stt::worker(
-            rx,
-            stt_text_shared,
-            stt_text_shared_history,
-            stt_is_ui_closed,
-            stt_select_model,
-    ));
-
+    // main GUI
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_always_on_top()       // for windows
-            .with_has_shadow(false)     // for mac os(?)
             .with_transparent(true)
             .with_inner_size([800.0, 100.0])
             .with_min_inner_size([50.0, 50.0])
@@ -85,6 +70,7 @@ fn main() {
         ..Default::default()
     };
 
+    // main GUI's settings
     let live_caption_settings = LiveCaptionSettingsRs::new(
         Arc::clone(&select_model),
         transparent_value,
@@ -93,40 +79,30 @@ fn main() {
         devices,
         device_selected,
         should_restart_audio,
-        thread_exited_ready
+        thread_exited_ready,
     );
 
-    let osc_sender = OSCSender::new(
-        &osc_output_path,
-        &osc_output_port
-    );
+    let osc_sender = OSCSender::new(&osc_output_path, &osc_output_port);
 
     match eframe::run_native(
         "Live Caption",
-        native_options, 
-        Box::new(|cc| 
-            Ok(
-                Box::new({
-                    egui_extras::install_image_loaders(&cc.egui_ctx);
-                    ui::LiveCaptionRs::new(
-                        cc, 
-                        text_shared,
-                        text_shared_history,
-                        is_ui_closed,
-                        tx, 
-                        live_caption_settings,
-                        osc_sender
-                    )
-                })
-            )
-        )
+        native_options,
+        Box::new(|cc| {
+            Ok(Box::new({
+                egui_extras::install_image_loaders(&cc.egui_ctx);
+                ui::LiveCaptionRs::new(
+                    cc,
+                    text_shared,
+                    text_shared_history,
+                    is_ui_closed,
+                    tx,
+                    live_caption_settings,
+                    osc_sender,
+                )
+            }))
+        }),
     ) {
         Ok(()) => (),
         Err(e) => panic!("Error: {e}"),
-    };
-
-    match stt_thread.join() {
-        Ok(()) => (),
-        Err(e) => panic!("STT Thread error: {e:?}"),
     };
 }
