@@ -1,6 +1,7 @@
 use crate::utils::osc::OSCSender;
 use crate::utils::ui_settings::Settings;
-use crate::{AudioWorker, utils::stt::WhisperSTT};
+use crate::utils::stt::WhisperSTT;
+use crate::utils::audio_linux::AudioWorker;
 
 use std::{
     fs,
