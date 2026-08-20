@@ -4,8 +4,6 @@ use eframe::egui;
 
 use crate::utils::ui;
 
-use crate::utils::audio_linux::AudioWorker;
-
 fn main() {
     env_logger::init();
 
