@@ -1,6 +1,6 @@
 use rosc::{OscMessage, OscPacket, OscType, encoder};
-use serde::{Serialize, Deserialize};
-use std::{net::UdpSocket};
+use serde::{Deserialize, Serialize};
+use std::net::UdpSocket;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct OSCAddress {
@@ -138,10 +138,7 @@ mod test {
 
         test_sender.send("hello!".into());
 
-        receiver
-            .recv(&mut buf)
-            .await
-            .expect("test -- recv failed");
+        receiver.recv(&mut buf).await.expect("test -- recv failed");
 
         let msg = decoder::decode_udp(&buf)
             .expect("test -- decoding failed")
@@ -152,7 +149,5 @@ mod test {
 
     #[tokio::test]
     #[ignore]
-    async fn send_to_vrc_test() {
-
-    }
+    async fn send_to_vrc_test() {}
 }

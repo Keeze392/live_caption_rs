@@ -1,6 +1,6 @@
-use crate::AudioWorker;
-use crate::osc::OSCSender;
-use crate::utils::ui_settings::LiveCaptionSettingsRs;
+use crate::utils::osc::OSCSender;
+use crate::utils::ui_settings::Settings;
+use crate::{AudioWorker, utils::stt::WhisperSTT};
 
 use std::{
     fs,
@@ -22,94 +22,74 @@ pub struct Caption {
 // main GUI
 #[derive(Default)]
 pub struct LiveCaptionRs {
-    // for display caption front of UI
+    /// for display caption front of UI
     caption: Arc<Mutex<Caption>>,
 
-    // a flag for tell to other thread to stop run
+    /// a flag for tell to other thread to stop run
     is_ui_closed: Arc<AtomicBool>,
 
-    // settings GUI
-    settings: LiveCaptionSettingsRs,
+    /// settings GUI
+    settings: Arc<Settings>,
 
-    // OSC for send text to somewhere out of live caption
+    /// OSC for send text to somewhere out of live caption
     osc_sender: OSCSender,
 
-    // temp channel
+    /// channel from Whisper to GUI
     tx: Option<mpsc::SyncSender<Vec<f32>>>,
 }
 
 impl LiveCaptionRs {
-    pub fn new(
-        cc: &eframe::CreationContext<'_>,
-        caption: Arc<Mutex<Caption>>,
-        is_ui_closed: Arc<AtomicBool>,
-        tx: mpsc::SyncSender<Vec<f32>>,
-        live_caption_settings: LiveCaptionSettingsRs,
-        osc_sender: OSCSender,
-    ) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.all_styles_mut(|style| {
             style.override_font_id = Some(FontId::proportional(22.0));
         });
 
+        let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(16);
+
         let livecaption = Self {
-            caption: caption,
-
-            is_ui_closed: Arc::clone(&is_ui_closed),
-
-            tx: Some(tx.clone()),
-
-            settings: live_caption_settings,
-            osc_sender: osc_sender,
-
+            tx: Some(tx),
+            settings: Arc::new(Settings::new()),
+            osc_sender: OSCSender::new(),
             ..Default::default()
         };
 
-        println!("{:?}", livecaption.settings.select_device.lock().unwrap());
+        println!(
+            "{:?}",
+            livecaption.settings.data.lock().unwrap().select_device
+        );
+
+        // spawn Whisper in separate Thread
+        WhisperSTT::new(
+            rx,
+            Arc::clone(&livecaption.caption),
+            Arc::clone(&livecaption.is_ui_closed),
+            Arc::clone(&livecaption.settings.data),
+        )
+        .spawn();
 
         // start audio on startup
-        Self::spawn_audio_thread(
-            tx,
-            Arc::clone(&livecaption.is_ui_closed),
-            Arc::clone(&livecaption.settings.select_device),
-            Arc::clone(&livecaption.settings.should_restart_audio),
-            Arc::clone(&livecaption.settings.thread_exited_ready),
-        );
+        livecaption.spawn_audio_thread();
 
         livecaption
     }
 
-    fn spawn_audio_thread(
-        tx: mpsc::SyncSender<Vec<f32>>,
-        is_ui_closed: Arc<AtomicBool>,
-        select_device: Arc<Mutex<Option<String>>>,
-        should_restart_audio: Arc<AtomicBool>,
-        thread_exited_ready: Arc<AtomicBool>,
-    ) {
-        AudioWorker::new(
-            select_device,
-            should_restart_audio,
-            is_ui_closed,
-            thread_exited_ready,
-        )
-        .spawn(tx);
+    fn spawn_audio_thread(&self) {
+        if let Some(tx) = &self.tx {
+            AudioWorker::new(Arc::clone(&self.settings), Arc::clone(&self.is_ui_closed))
+                .spawn(tx.clone());
+        }
     }
 
     /// Check if output text rows higher than GUI, remove old line.
     /// And save the old line to history if enabled.
     #[inline]
-    fn remove_one_wrapped_line(
-        ui: &egui::Ui,
-        live_caption: &LiveCaptionRs,
-    ) {
+    fn remove_one_wrapped_line(ui: &egui::Ui, live_caption: &LiveCaptionRs) {
         // check if available height is high than 0.0, skip it. No remove here.
         if ui.available_height() > 0.0 {
             return;
         }
 
-        let text = &mut live_caption
-            .caption
-            .lock().unwrap()
-            .current;
+        let text = &mut live_caption.caption.lock().unwrap().current;
 
         let galley = ui.painter().layout(
             text.clone(),
@@ -122,14 +102,20 @@ impl LiveCaptionRs {
         let first_line_len = galley.rows[0].text().len();
 
         // save the delete line to file if is toggle enable
-        if live_caption.settings.is_enable_save_history.load(Ordering::Acquire) {
+        if live_caption
+            .settings
+            .flags
+            .is_enable_save_history
+            .load(Ordering::Acquire)
+        {
             Self::save_history_file(
                 text[..first_line_len].to_string(),
                 live_caption
                     .settings
-                    .save_history_custom_path
+                    .data
                     .lock()
                     .unwrap()
+                    .save_history_custom_path
                     .clone(),
             );
         }
@@ -217,7 +203,7 @@ impl eframe::App for LiveCaptionRs {
             bg_color.r(),
             bg_color.g(),
             bg_color.b(),
-            *self.settings.transparent_value.lock().unwrap(),
+            self.settings.data.lock().unwrap().transparent_value,
         );
 
         transparent.to_array()
@@ -232,8 +218,9 @@ impl eframe::App for LiveCaptionRs {
         };
 
         // get original color then connected with control transparent
-        let color = egui::Rgba::from_black_alpha(*self.settings.transparent_value.lock().unwrap())
-            .to_srgba_unmultiplied();
+        let color =
+            egui::Rgba::from_black_alpha(self.settings.data.lock().unwrap().transparent_value)
+                .to_srgba_unmultiplied();
         let bg_color = egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(
             color[0], color[1], color[2], color[3],
         ));
@@ -254,6 +241,7 @@ impl eframe::App for LiveCaptionRs {
 
                 if b_settings.clicked() {
                     self.settings
+                        .flags
                         .should_open_settings_window
                         .store(true, Ordering::Release);
                 }
@@ -273,17 +261,23 @@ impl eframe::App for LiveCaptionRs {
         // Settings Window will open if true
         if self
             .settings
+            .flags
             .should_open_settings_window
             .load(Ordering::Acquire)
         {
             self.settings.settings_window(ui);
         }
 
-        if self.settings.should_save_config.load(Ordering::Acquire) {
+        if self
+            .settings
+            .flags
+            .should_save_config
+            .load(Ordering::Acquire)
+        {
             self.settings.save_configuration_file();
 
             // this will drop guard once out of scope
-            let osc_address = self.settings.osc_address.lock().unwrap();
+            let osc_address = &self.settings.data.lock().unwrap().osc_address;
 
             // update both path and port regardless if UI settings closed since it only tiny cost
             // which acceptable as it does not happen oftne.
@@ -292,37 +286,40 @@ impl eframe::App for LiveCaptionRs {
 
             // set back to false after save config
             self.settings
+                .flags
                 .should_save_config
                 .store(false, Ordering::Release);
         }
 
         // checking if trigger received that audio needs to restart for target new device
-        if self.settings.should_restart_audio.load(Ordering::Acquire)
-            && self.settings.thread_exited_ready.load(Ordering::Acquire)
+        if self
+            .settings
+            .flags
+            .should_restart_audio
+            .load(Ordering::Acquire)
+            && self
+                .settings
+                .flags
+                .thread_exited_ready
+                .load(Ordering::Acquire)
         {
             println!("DETECT -- Device has changed! -- Audio restarting...");
 
             // clone the Arc before give to thread
-            Self::spawn_audio_thread(
-                self.tx
-                    .clone()
-                    .expect("Err -- What? not work? how! -- Channel clone failed"),
-                Arc::clone(&self.is_ui_closed),
-                Arc::clone(&self.settings.select_device),
-                Arc::clone(&self.settings.should_restart_audio),
-                Arc::clone(&self.settings.thread_exited_ready),
-            );
+            self.spawn_audio_thread();
 
             // restart done! set back to false
             self.settings
+                .flags
                 .should_restart_audio
                 .store(false, Ordering::Release);
             self.settings
+                .flags
                 .thread_exited_ready
                 .store(false, Ordering::Release);
         }
 
-        if self.settings.osc_is_enable.load(Ordering::Acquire) {
+        if self.settings.flags.is_enable_osc.load(Ordering::Acquire) {
             // non-vrchat version
             self.osc_sender.send(caption_sentences);
 
@@ -339,12 +336,18 @@ impl eframe::App for LiveCaptionRs {
         self.is_ui_closed.store(true, Ordering::Release);
 
         // save message leftover when program exit
-        if self.settings.is_enable_save_history.load(Ordering::Acquire) {
+        if self
+            .settings
+            .flags
+            .is_enable_save_history
+            .load(Ordering::Acquire)
+        {
             let path = self
                 .settings
-                .save_history_custom_path
+                .data
                 .lock()
                 .unwrap()
+                .save_history_custom_path
                 .clone();
             let text_shared = self.caption.lock().unwrap().current.clone();
             let text_shared_history = self.caption.lock().unwrap().history.clone();

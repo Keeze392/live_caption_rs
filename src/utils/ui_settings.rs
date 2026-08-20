@@ -8,93 +8,81 @@ use std::{
     },
 };
 
-use serde_json::json;
-
 use egui::{CentralPanel, TextEdit, widgets};
 use egui_file_dialog::{FileDialog, Filter};
 
 use serde::{Deserialize, Serialize};
 
+use crate::utils::audio_linux::AudioWorker;
 use crate::utils::osc::OSCAddress;
 
-// Settings GUI
+/// flags for tell threads what to do
+/// Should used with Arc
 #[derive(Default, Serialize, Deserialize)]
-pub struct LiveCaptionSettingsRs {
-    // backgroundt transparent
-    pub transparent_value: Arc<Mutex<f32>>,
+pub struct Flags {
+    pub is_enable_osc: AtomicBool,
 
-    // model for speech to text (STT)
-    pub select_model: Arc<Mutex<Option<PathBuf>>>,
-    #[serde(skip)]
-    pub select_model_dialog: Arc<Mutex<FileDialog>>,
+    pub is_enable_save_history: AtomicBool,
 
-    // osc for sender, a text from STT
-    pub osc_is_enable: Arc<AtomicBool>,
-    pub osc_address: Arc<Mutex<OSCAddress>>,
-
-    // history with toggle
-    pub save_history_custom_path: Arc<Mutex<Option<PathBuf>>>,
+    // send flag restart audio when device changed
     #[serde(skip)]
-    pub save_history_dialog: Arc<Mutex<FileDialog>>,
-    pub is_enable_save_history: Arc<AtomicBool>,
-
-    // audio devices
+    pub should_restart_audio: AtomicBool,
     #[serde(skip)]
-    pub devices: Arc<Mutex<Vec<String>>>,
-    pub select_device: Arc<Mutex<Option<String>>>,
-
-    // restart audio when device changed
-    #[serde(skip)]
-    pub should_restart_audio: Arc<AtomicBool>,
-    #[serde(skip)]
-    pub thread_exited_ready: Arc<AtomicBool>,
+    pub thread_exited_ready: AtomicBool,
 
     // for save config after settings closed
     #[serde(skip)]
-    pub should_save_config: Arc<AtomicBool>,
+    pub should_save_config: AtomicBool,
 
     // a bool for settings window to appear
     #[serde(skip)]
-    pub should_open_settings_window: Arc<AtomicBool>,
+    pub should_open_settings_window: AtomicBool,
+}
+
+/// Settings for Live caption GUI itself
+#[derive(Default, Serialize, Deserialize)]
+pub struct Data {
+    // backgroundt transparent
+    pub transparent_value: f32,
+
+    // model for speech to text (STT)
+    pub select_model: Option<PathBuf>,
+    #[serde(skip)]
+    pub select_model_dialog: FileDialog,
+
+    // osc for sender, a text from STT
+    pub osc_address: OSCAddress,
+
+    // history
+    pub save_history_custom_path: Option<PathBuf>,
+    #[serde(skip)]
+    pub save_history_dialog: FileDialog,
+
+    // audio devices
+    #[serde(skip)]
+    pub devices: Vec<String>,
+    pub select_device: Option<String>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct Settings {
+    pub flags: Arc<Flags>,
+    pub data: Arc<Mutex<Data>>,
 }
 
 // settings GUI
-impl LiveCaptionSettingsRs {
-    pub fn new(
-        select_model: Arc<Mutex<Option<PathBuf>>>,
-        transparent_value: Arc<Mutex<f32>>,
-        devices: Arc<Mutex<Vec<String>>>,
-        select_device: Arc<Mutex<Option<String>>>,
-        should_restart_audio: Arc<AtomicBool>,
-        thread_exited_ready: Arc<AtomicBool>,
-    ) -> Self {
-        let mut live_caption_settings = Self {
-            transparent_value: transparent_value,
+impl Settings {
+    pub fn new() -> Self {
+        // will load any data otherwise return default if file isn't exist or error
+        let settings = Self::load_configuration_file();
 
-            select_model: select_model,
+        AudioWorker::get_devices_array(Arc::clone(&settings.data));
 
-            osc_is_enable: Arc::new(AtomicBool::new(false)),
-
-            is_enable_save_history: Arc::new(AtomicBool::new(false)),
-
-            should_open_settings_window: Arc::new(AtomicBool::new(false)),
-
-            devices: devices,
-            select_device: select_device,
-
-            should_restart_audio: should_restart_audio,
-            thread_exited_ready: thread_exited_ready,
-
-            ..Default::default()
-        };
-
-        live_caption_settings.load_configuration_file();
-
-        live_caption_settings
+        settings
     }
 
-    // save configuration so it will remember all settings
-    // resize window, settings gui infonmation etc.
+    /// save configuration so it will remember all settings
+    /// resize window, settings gui infonmation etc.
     pub fn save_configuration_file(&self) {
         let config_path: String = match dirs::data_local_dir() {
             Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
@@ -104,22 +92,7 @@ impl LiveCaptionSettingsRs {
             }
         };
 
-        let mut json_build = serde_json::Map::new();
-
-        // save list
-        json_build.insert("select_model".into(), json!(self.select_model));
-        json_build.insert("transparent_value".into(), json!(self.transparent_value));
-        json_build.insert(
-            "save_history_custom_path".into(),
-            json!(self.save_history_custom_path),
-        );
-        json_build.insert(
-            "is_enable_save_history".into(),
-            json!(self.is_enable_save_history),
-        );
-        json_build.insert("select_device".into(), json!(self.select_device));
-        json_build.insert("osc_address".into(), json!(self.osc_address));
-        json_build.insert("osc_is_enable".into(), json!(self.osc_is_enable));
+        let json = serde_json::json!(&self);
 
         let file = match File::create(config_path) {
             Ok(val) => val,
@@ -131,7 +104,7 @@ impl LiveCaptionSettingsRs {
 
         // write a file
         let mut writer = BufWriter::new(file);
-        match serde_json::to_writer_pretty(&mut writer, &json_build) {
+        match serde_json::to_writer_pretty(&mut writer, &json) {
             Ok(()) => (),
             Err(e) => {
                 eprintln!("Failed to write a config file: {e}");
@@ -150,14 +123,14 @@ impl LiveCaptionSettingsRs {
         println!("INFO -- Save configuration successfully");
     }
 
-    // load only at start up GUI.
+    /// load only at start up GUI.
     #[inline]
-    pub fn load_configuration_file(&mut self) {
+    fn load_configuration_file() -> Settings {
         let config_path: String = match dirs::data_local_dir() {
             Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
             None => {
                 eprintln!("Error -- get config path failed");
-                return;
+                return Self::default();
             }
         };
 
@@ -165,98 +138,71 @@ impl LiveCaptionSettingsRs {
             Ok(val) => val,
             Err(_) => {
                 eprintln!("Skipping -- No confing file to load");
-                return;
+                return Self::default();
             }
         };
 
-        let unpack_json: LiveCaptionSettingsRs = match serde_json::from_str(&*file) {
+        let unpack_json: Settings = match serde_json::from_str(&*file) {
             Ok(val) => val,
             Err(e) => {
                 println!("Error -- Trying unpack json failed: {e}");
-                return;
+                return Self::default();
             }
         };
 
-        // load list
-        *self.select_model.lock().unwrap() = unpack_json.select_model.lock().unwrap().take();
-        self.transparent_value = unpack_json.transparent_value;
-        self.save_history_custom_path = unpack_json.save_history_custom_path;
-        self.is_enable_save_history = unpack_json.is_enable_save_history;
-        self.select_device = unpack_json.select_device;
-        self.osc_address = unpack_json.osc_address;
-        self.osc_is_enable = unpack_json.osc_is_enable;
+        unpack_json
     }
 
-    pub fn settings_window(&mut self, ui: &mut egui::Ui) {
-        let arc_transparent_value = Arc::clone(&self.transparent_value);
-
-        let arc_should_open_settings_window = Arc::clone(&self.should_open_settings_window);
-
-        let arc_select_model = Arc::clone(&self.select_model);
-        let arc_select_model_dialog = Arc::clone(&self.select_model_dialog);
-
-        let arc_osc_is_enable = Arc::clone(&self.osc_is_enable);
-        let arc_osc_address = Arc::clone(&self.osc_address);
-
-        let arc_save_history_custom_path = Arc::clone(&self.save_history_custom_path);
-        let arc_save_history_dialog = Arc::clone(&self.save_history_dialog);
-        let arc_is_enable_save_history = Arc::clone(&self.is_enable_save_history);
-
-        let arc_devices = Arc::clone(&self.devices);
-        let arc_device_selected = Arc::clone(&self.select_device);
-        let arc_should_restart_audio = Arc::clone(&self.should_restart_audio);
-
-        let arc_should_save_config = Arc::clone(&self.should_save_config);
+    pub fn settings_window(&self, ui: &mut egui::Ui) {
+        let data = Arc::clone(&self.data);
+        let flags = Arc::clone(&self.flags);
 
         ui.ctx().show_viewport_deferred(
             egui::ViewportId::from_hash_of("Settings"),
             egui::ViewportBuilder::default().with_title("Settings"),
             move |ui, _| {
                 CentralPanel::default().show_inside(ui, |ui| {
+                    let mut data_guard = data.lock().unwrap();
+
                     // devices list to pick one device for listening
-                    Self::set_combobox_devices(
-                        ui,
-                        &arc_devices,
-                        &arc_device_selected,
-                        &arc_should_restart_audio,
-                    );
+                    Self::set_combobox_devices(ui, &mut data_guard, &flags);
 
                     ui.separator();
 
                     // button to open new window for select model file
-                    Self::set_select_model(ui, &arc_select_model, &arc_select_model_dialog);
+                    Self::set_select_model(ui, &mut data_guard);
 
                     ui.separator();
 
                     // slider - transparent option
-                    let mut value = arc_transparent_value.lock().unwrap();
-                    Self::set_slider_transparent(ui, &mut value);
+                    Self::set_slider_transparent(ui, &mut data_guard);
 
                     ui.separator();
 
                     // OSC - expose the output text to outside
-                    Self::toggle_osc(ui, &arc_osc_is_enable);
-                    Self::set_text_input_osc_port(ui, &arc_osc_address);
-                    Self::set_text_input_osc_path(ui, &arc_osc_address);
+                    Self::toggle_osc(ui, &flags);
+                    Self::set_text_input_osc_port(ui, &mut data_guard);
+                    Self::set_text_input_osc_path(ui, &mut data_guard);
 
                     ui.separator();
 
-                    Self::toggle_is_enable_save_history(ui, &arc_is_enable_save_history);
+                    Self::toggle_is_enable_save_history(ui, &flags);
 
                     // save output text to history file
-                    Self::set_save_history_custom_path(
-                        ui,
-                        &arc_save_history_custom_path,
-                        &arc_save_history_dialog,
-                    );
+                    Self::set_save_history_custom_path(ui, &mut data_guard);
 
                     ui.separator();
                 });
 
                 // close settings GUI if "x" button is pressed
                 if ui.ctx().input(|i| i.viewport().close_requested()) {
-                    arc_should_open_settings_window.store(false, Ordering::Release);
-                    arc_should_save_config.store(true, Ordering::Release);
+                    flags
+                        .should_open_settings_window
+                        .store(false, Ordering::Release);
+                    flags.should_save_config.store(true, Ordering::Release);
+
+                    // refresh in case if user going open window again to see if devices get refresh
+                    AudioWorker::get_devices_array(Arc::clone(&data));
                 }
             },
         );
@@ -265,16 +211,11 @@ impl LiveCaptionSettingsRs {
     /// get audio devices and show combobox for user to pick a choice.
     /// this will refresh every time settings is open incase if user plug something
     #[inline]
-    fn set_combobox_devices(
-        ui: &mut egui::Ui,
-        arc_devices: &Arc<Mutex<Vec<String>>>,
-        arc_selected: &Arc<Mutex<Option<String>>>,
-        should_restart_audio: &Arc<AtomicBool>,
-    ) {
+    fn set_combobox_devices(ui: &mut egui::Ui, data: &mut Data, flags: &Arc<Flags>) {
         ui.label("Audio Devices, select a device for what should listening on.");
 
-        let mut selected = arc_selected.lock().unwrap().clone();
-        let devices = arc_devices.lock().unwrap().clone();
+        let mut selected = data.select_device.clone();
+        let devices = &data.devices;
         let before = selected.clone();
 
         ui.horizontal_wrapped(|ui| {
@@ -296,26 +237,20 @@ impl LiveCaptionSettingsRs {
 
         // has device changed? send trigger restart the audio
         if selected != before {
-            should_restart_audio.store(true, Ordering::Release);
+            flags.should_restart_audio.store(true, Ordering::Release);
         }
 
-        *arc_selected.lock().unwrap() = selected;
+        data.select_device = selected;
     }
 
     /// pop up new window for select file model begin with ".bin"
     #[inline]
-    fn set_select_model(
-        ui: &mut egui::Ui,
-        select_model: &Arc<Mutex<Option<PathBuf>>>,
-        select_model_dialog: &Arc<Mutex<FileDialog>>,
-    ) {
-        let mut select_window_dialog = select_model_dialog.lock().unwrap();
-
+    fn set_select_model(ui: &mut egui::Ui, data: &mut Data) {
         ui.label("Select model to load Speech to text AI");
 
         ui.horizontal_wrapped(|ui| {
             if ui.button("Open").clicked() {
-                let dialog = std::mem::take(&mut *select_window_dialog)
+                let dialog = std::mem::take(&mut data.select_model_dialog)
                     .show_all_files_filter(false)
                     .default_file_filter("bin")
                     .add_file_filter(
@@ -324,16 +259,14 @@ impl LiveCaptionSettingsRs {
                     )
                     .max_selections(1);
 
-                *select_window_dialog = dialog;
+                data.select_model_dialog = dialog;
 
-                select_window_dialog.pick_file();
+                data.select_model_dialog.pick_file();
             }
         });
         ui.label(format!(
             "model: {}",
-            select_model
-                .lock()
-                .unwrap()
+            data.select_model
                 .as_ref()
                 .unwrap_or(&PathBuf::from("None"))
                 .file_name()
@@ -341,39 +274,39 @@ impl LiveCaptionSettingsRs {
                 .to_string_lossy()
         ));
 
-        select_window_dialog.update(ui);
+        data.select_model_dialog.update(ui);
 
-        if let Some(path) = select_window_dialog.take_picked() {
-            *select_model.lock().unwrap() = Some(path.to_path_buf());
+        if let Some(path) = data.select_model_dialog.take_picked() {
+            data.select_model = Some(path.to_path_buf());
         }
     }
 
     /// set transparent of GUI
-    /// default: 0.75
+    /// default: 0.00
     #[inline]
-    fn set_slider_transparent(ui: &mut egui::Ui, value: &mut f32) {
+    fn set_slider_transparent(ui: &mut egui::Ui, data: &mut Data) {
         ui.label("Transparent for background");
 
         ui.horizontal_wrapped(|ui| {
             ui.label("Transparent:");
-            ui.add(widgets::Slider::new(value, 0.0..=1.0).step_by(0.05));
+            ui.add(widgets::Slider::new(&mut data.transparent_value, 0.0..=1.0).step_by(0.05));
         });
     }
 
     #[inline]
-    fn toggle_osc(ui: &mut egui::Ui, toggle: &Arc<AtomicBool>) {
+    fn toggle_osc(ui: &mut egui::Ui, flags: &Arc<Flags>) {
         ui.label("Enable OSC?");
-        let mut toggle_bool = toggle.load(Ordering::Acquire);
+        let mut toggle_bool = flags.is_enable_osc.load(Ordering::Acquire);
 
         ui.checkbox(&mut toggle_bool, "OSC");
 
-        toggle.store(toggle_bool, Ordering::Release);
+        flags.is_enable_osc.store(toggle_bool, Ordering::Release);
     }
 
     #[inline]
-    fn set_text_input_osc_port(ui: &mut egui::Ui, caption: &Arc<Mutex<OSCAddress>>) {
+    fn set_text_input_osc_port(ui: &mut egui::Ui, data: &mut Data) {
         ui.label("OSC expose the output text to outside.");
-        let mut port = caption.lock().unwrap().port.clone();
+        let mut port = data.osc_address.port.clone();
 
         ui.horizontal_wrapped(|ui| {
             ui.label("osc port:");
@@ -381,12 +314,12 @@ impl LiveCaptionSettingsRs {
             ui.add(TextEdit::singleline(&mut port));
         });
 
-        caption.lock().unwrap().port = port;
+        data.osc_address.port = port;
     }
 
     #[inline]
-    fn set_text_input_osc_path(ui: &mut egui::Ui, caption: &Arc<Mutex<OSCAddress>>) {
-        let mut path = caption.lock().unwrap().path.clone();
+    fn set_text_input_osc_path(ui: &mut egui::Ui, data: &mut Data) {
+        let mut path = data.osc_address.path.clone();
 
         ui.horizontal_wrapped(|ui| {
             ui.label("osc path:");
@@ -394,49 +327,43 @@ impl LiveCaptionSettingsRs {
             ui.add(TextEdit::singleline(&mut path));
         });
 
-        caption.lock().unwrap().path = path;
+        data.osc_address.path = path;
     }
 
     /// select directory for output a History file to that path.
     #[inline]
-    fn set_save_history_custom_path(
-        ui: &mut egui::Ui,
-        arc_path: &Arc<Mutex<Option<PathBuf>>>,
-        arc_dialog: &Arc<Mutex<FileDialog>>,
-    ) {
-        let mut select_window_dialog = arc_dialog.lock().unwrap();
-
+    fn set_save_history_custom_path(ui: &mut egui::Ui, data: &mut Data) {
         ui.label("If you wish to save output text as history, you can enable here.");
 
         if ui.button("Open").clicked() {
-            select_window_dialog.pick_directory();
+            data.save_history_dialog.pick_directory();
         }
 
         ui.label(format!(
             "Custom path: {}",
-            arc_path
-                .lock()
-                .unwrap()
+            data.save_history_custom_path
                 .as_ref()
                 .unwrap_or(&PathBuf::from("None"))
                 .to_string_lossy()
         ));
 
-        select_window_dialog.update(ui);
+        data.save_history_dialog.update(ui);
 
-        if let Some(path) = select_window_dialog.take_picked() {
-            *arc_path.lock().unwrap() = Some(path.to_path_buf());
+        if let Some(path) = data.save_history_dialog.take_picked() {
+            data.save_history_custom_path = Some(path.to_path_buf());
         }
     }
 
     #[inline]
-    fn toggle_is_enable_save_history(ui: &mut egui::Ui, toggle: &Arc<AtomicBool>) {
+    fn toggle_is_enable_save_history(ui: &mut egui::Ui, flags: &Arc<Flags>) {
         ui.label(format!("Enable history?"));
 
-        let mut toggle_bool = toggle.load(Ordering::Acquire);
+        let mut toggle_bool = flags.is_enable_save_history.load(Ordering::Acquire);
 
         ui.checkbox(&mut toggle_bool, "History");
 
-        toggle.store(toggle_bool, Ordering::Release);
+        flags
+            .is_enable_save_history
+            .store(toggle_bool, Ordering::Release);
     }
 }

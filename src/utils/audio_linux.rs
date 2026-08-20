@@ -25,6 +25,8 @@ use pipewire::{
 };
 use resampler::{ResamplerFir, SampleRate};
 
+use crate::utils::ui_settings::{Data, Settings};
+
 // pipewire settings
 const SAMPLE_RATE: u32 = 48000;
 const CHANNEL: u32 = 1;
@@ -39,24 +41,15 @@ const OUTPUT_RESAMPLE_RATE: SampleRate = SampleRate::Hz16000;
 const SAMPLE_CHUNK: u32 = SAMPLE_RATE / 2;
 
 pub struct AudioWorker {
-    select_device: Arc<Mutex<Option<String>>>,
-    should_restart_audio: Arc<AtomicBool>,
+    ui_settings: Arc<Settings>,
     is_ui_closed: Arc<AtomicBool>,
-    thread_exited_ready: Arc<AtomicBool>,
 }
 
 impl AudioWorker {
-    pub fn new(
-        select_device: Arc<Mutex<Option<String>>>,
-        should_restart_audio: Arc<AtomicBool>,
-        is_ui_closed: Arc<AtomicBool>,
-        thread_exited_ready: Arc<AtomicBool>,
-    ) -> Self {
+    pub fn new(ui_settings: Arc<Settings>, is_ui_closed: Arc<AtomicBool>) -> Self {
         Self {
-            select_device: select_device,
-            should_restart_audio: should_restart_audio,
+            ui_settings: ui_settings,
             is_ui_closed: is_ui_closed,
-            thread_exited_ready: thread_exited_ready,
         }
     }
 
@@ -120,10 +113,8 @@ impl AudioWorker {
 
         // clone for some stuff at near end of close bracket before move self outside.
         let mainloop_clone = mainloop.clone();
-        let should_restart_audio_clone = Arc::clone(&self.should_restart_audio);
+        let settings_clone = Arc::clone(&self.ui_settings);
         let is_ui_closed_clone = Arc::clone(&self.is_ui_closed);
-        let thread_exited_ready_clone = Arc::clone(&self.thread_exited_ready);
-        let select_device_clone = Arc::clone(&self.select_device);
 
         let _listener = match stream
             .add_local_listener::<()>()
@@ -206,18 +197,20 @@ impl AudioWorker {
         let mut params = [Pod::from_bytes(&values).unwrap()];
 
         // get device id by find match name, this is return "option" so it may none if it fail to find.
-        let device_id = Self::get_device_id(&select_device_clone);
+        let device_id = Self::get_device_id(&settings_clone.data.lock().unwrap().select_device);
 
         println!(
             "INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick monitor otherwise does nothing)",
-            select_device_clone
+            &settings_clone
+                .data
                 .lock()
                 .unwrap()
+                .select_device
                 .clone()
                 .unwrap_or("None".to_string())
         );
 
-        println!("INFO -- Audio Thread has starting!");
+        println!("INFO -- Audio Thread has started!");
 
         match stream.connect(
             Direction::Input,
@@ -234,9 +227,14 @@ impl AudioWorker {
 
         // add timer to keep eye on check if flag has been set.
         let timer = mainloop.loop_().add_timer(move |_| {
-            if should_restart_audio_clone.load(Acquire) || is_ui_closed_clone.load(Acquire) {
+            if settings_clone.flags.should_restart_audio.load(Acquire)
+                || is_ui_closed_clone.load(Acquire)
+            {
                 mainloop_clone.quit();
-                thread_exited_ready_clone.store(true, Release);
+                settings_clone
+                    .flags
+                    .thread_exited_ready
+                    .store(true, Release);
             }
         });
 
@@ -303,7 +301,7 @@ impl AudioWorker {
     }
 
     /// get id by find match name of device/app/other
-    fn get_device_id(select_device: &Arc<Mutex<Option<String>>>) -> Option<u32> {
+    fn get_device_id(select_device: &Option<String>) -> Option<u32> {
         let mainloop = match MainLoopRc::new(None) {
             Ok(val) => val,
             Err(e) => {
@@ -336,7 +334,7 @@ impl AudioWorker {
             }
         };
 
-        let device_name = match select_device.lock().unwrap().clone() {
+        let device_name = match select_device.clone() {
             Some(val) => val,
             None => return None,
         };
@@ -380,8 +378,12 @@ impl AudioWorker {
         *get_id_clone.lock().unwrap()
     }
 
-    // get all audio devcies/other that pipewire see.
-    pub fn get_devices_array(devices_array: Arc<Mutex<Vec<String>>>) {
+    /// get all audio devcies/other that pipewire see.
+    ///
+    /// # info
+    ///
+    /// required taking Arc Owner! use Arc::clone() for it.
+    pub fn get_devices_array(data: Arc<Mutex<Data>>) {
         let mainloop = match MainLoopRc::new(None) {
             Ok(m) => m,
             Err(e) => {
@@ -414,13 +416,13 @@ impl AudioWorker {
             }
         };
 
-        devices_array.lock().unwrap().push("None".to_string());
+        data.lock().unwrap().devices.push("None".to_string());
 
         let _listener = registry
             .add_listener_local()
             .global(move |g| {
                 if let Some(props) = &g.props {
-                    let mut safe_array = devices_array.lock().unwrap();
+                    let mut safe_array = data.lock().unwrap();
 
                     /*if let Some(name) = props.get("application.name") {
                         if !name.is_empty() && !safe_array.contains(&name.to_string()) {
@@ -430,14 +432,14 @@ impl AudioWorker {
                     }*/
 
                     if let Some(name) = props.get("device.description") {
-                        if !name.is_empty() && !safe_array.contains(&name.to_string()) {
-                            safe_array.push(name.to_string());
+                        if !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
+                            safe_array.devices.push(name.to_string());
                         }
                     }
 
                     if let Some(name) = props.get("node.description") {
-                        if !name.is_empty() && !safe_array.contains(&name.to_string()) {
-                            safe_array.push(name.to_string());
+                        if !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
+                            safe_array.devices.push(name.to_string());
                         }
                     }
                 }
