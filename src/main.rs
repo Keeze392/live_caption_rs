@@ -2,6 +2,7 @@ mod utils;
 
 use eframe::egui;
 
+use crate::utils::ui::Caption;
 use crate::utils::{osc, stt::WhisperSTT, ui};
 
 use crate::utils::audio_linux::AudioWorker;
@@ -20,9 +21,8 @@ fn main() {
     // bool, if UI is closed, send flag to all thread to stop from loop
     let is_ui_closed = Arc::new(AtomicBool::new(false));
 
-    // String from whisper to UI label
-    let text_shared = Arc::new(Mutex::new(String::new()));
-    let text_shared_history = Arc::new(Mutex::new(String::new()));
+    // caption from Whisper to output text for UI display caption
+    let caption = Arc::new(Mutex::new(Caption::default()));
 
     // select model for whipser
     let select_model = Arc::new(Mutex::new(None));
@@ -46,15 +46,10 @@ fn main() {
     // then main thread can spawn new thread in order to avoid race condition
     let thread_exited_ready = Arc::new(AtomicBool::new(false));
 
-    // String osc
-    let osc_output_path = Arc::new(Mutex::new(String::new()));
-    let osc_output_port = Arc::new(Mutex::new(String::new()));
-
     // stt - Whisper
     WhisperSTT::new(
         rx,
-        Arc::clone(&text_shared),
-        Arc::clone(&text_shared_history),
+        Arc::clone(&caption),
         Arc::clone(&is_ui_closed),
         Arc::clone(&select_model),
     )
@@ -72,17 +67,15 @@ fn main() {
 
     // main GUI's settings
     let live_caption_settings = LiveCaptionSettingsRs::new(
-        Arc::clone(&select_model),
+        select_model,
         transparent_value,
-        Arc::clone(&osc_output_path),
-        Arc::clone(&osc_output_port),
         devices,
         device_selected,
         should_restart_audio,
         thread_exited_ready,
     );
 
-    let osc_sender = OSCSender::new(&osc_output_path, &osc_output_port);
+    let osc_sender = OSCSender::new();
 
     match eframe::run_native(
         "Live Caption",
@@ -92,8 +85,7 @@ fn main() {
                 egui_extras::install_image_loaders(&cc.egui_ctx);
                 ui::LiveCaptionRs::new(
                     cc,
-                    text_shared,
-                    text_shared_history,
+                    caption,
                     is_ui_closed,
                     tx,
                     live_caption_settings,

@@ -1,49 +1,45 @@
 use rosc::{OscMessage, OscPacket, OscType, encoder};
-use std::{
-    net::UdpSocket,
-    sync::{Arc, Mutex},
-};
+use serde::{Serialize, Deserialize};
+use std::{net::UdpSocket};
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct OSCAddress {
+    pub path: String,
+    pub port: String,
+}
 
 pub struct OSCSender {
-    osc_output_path: String,
-    osc_output_port: String,
-
+    osc_address: OSCAddress,
     socket: UdpSocket,
 }
 
 impl OSCSender {
-    pub fn new(arc_output_path: &Arc<Mutex<String>>, arc_output_port: &Arc<Mutex<String>>) -> Self {
-        let output_path = arc_output_path.lock().unwrap().clone();
-        let output_port = arc_output_port.lock().unwrap().clone();
-
+    pub fn new() -> Self {
         Self {
-            osc_output_path: output_path,
-            osc_output_port: output_port,
+            osc_address: OSCAddress::default(),
 
             socket: UdpSocket::bind("127.0.0.1:0").expect("OSC Err -- socket bind local ip failed"),
         }
     }
 
-    pub fn set_path(&mut self, arc_output_path: &Arc<Mutex<String>>) {
-        self.osc_output_path = arc_output_path.lock().unwrap().clone();
+    pub fn set_path(&mut self, output_path: String) {
+        self.osc_address.path = output_path;
     }
 
-    pub fn set_port(&mut self, arc_output_port: &Arc<Mutex<String>>) {
-        let temp = arc_output_port.lock().unwrap().clone();
-
+    pub fn set_port(&mut self, output_port: String) {
         // not accept any char other than numbers
-        if !temp.chars().all(|val| val.is_numeric()) {
+        if !output_port.chars().all(|val| val.is_numeric()) {
             eprintln!("ERR -- OSC port accept only numbers");
             return;
         }
 
-        self.osc_output_port = temp;
+        self.osc_address.port = output_port;
     }
 
     // for sending with path and port to local ip only
     pub fn send(&self, text: String) {
         let msg = OscMessage {
-            addr: self.osc_output_path.clone(),
+            addr: self.osc_address.path.clone(),
             args: vec![OscType::String(text)],
         };
 
@@ -57,8 +53,8 @@ impl OSCSender {
             }
         };
 
-        if !self.osc_output_port.is_empty() {
-            let full_addr_target = format!("127.0.0.1:{}", self.osc_output_port);
+        if !self.osc_address.port.is_empty() {
+            let full_addr_target = format!("127.0.0.1:{}", self.osc_address.port);
 
             match self.socket.send_to(&buf, full_addr_target) {
                 Ok(_) => (),
@@ -71,7 +67,7 @@ impl OSCSender {
     }
 
     // plan to add for vrc in future
-    pub fn send_to_vrc(&self) {
+    pub fn _send_to_vrc(&self) {
         unimplemented!()
     }
 }
@@ -79,9 +75,7 @@ impl OSCSender {
 impl Default for OSCSender {
     fn default() -> Self {
         Self {
-            osc_output_path: String::new(),
-            osc_output_port: String::new(),
-
+            osc_address: OSCAddress::default(),
             socket: UdpSocket::bind("127.0.0.1:0").expect("OSC Err -- socket bind local ip failed"),
         }
     }
@@ -93,60 +87,72 @@ mod test {
 
     #[test]
     fn set_path_test() {
-        let mut osc_struct_test = OSCSender::new(
-            &Arc::new(Mutex::new("".into())),
-            &Arc::new(Mutex::new("".into())),
-        );
+        let mut osc_struct_test = OSCSender::new();
 
-        assert_eq!(String::from(""), osc_struct_test.osc_output_path);
+        assert_eq!(String::from(""), osc_struct_test.osc_address.path);
 
-        osc_struct_test.set_path(&Arc::new(Mutex::new("/blah_blah".into())));
+        osc_struct_test.set_path("/blah_blah".into());
 
-        assert_eq!(String::from("/blah_blah"), osc_struct_test.osc_output_path);
+        assert_eq!(String::from("/blah_blah"), osc_struct_test.osc_address.path);
     }
 
     #[test]
     fn set_port_test() {
-        let mut osc_struct_test = OSCSender::new(
-            &Arc::new(Mutex::new("".into())),
-            &Arc::new(Mutex::new("".into())),
-        );
+        let mut osc_struct_test = OSCSender::new();
 
-        assert_eq!(String::from(""), osc_struct_test.osc_output_port);
+        assert_eq!(String::from(""), osc_struct_test.osc_address.port);
 
-        osc_struct_test.set_port(&Arc::new(Mutex::new("9009".into())));
+        osc_struct_test.set_port("9009".into());
 
-        assert_eq!(String::from("9009"), osc_struct_test.osc_output_port);
+        assert_eq!(String::from("9009"), osc_struct_test.osc_address.port);
 
-        osc_struct_test.set_port(&Arc::new(Mutex::new("abc".into())));
+        osc_struct_test.set_port("abc".into());
 
-        assert_ne!("abc", osc_struct_test.osc_output_port);
+        assert_ne!("abc", osc_struct_test.osc_address.port);
     }
 
     // i don't know if this is good idea or design
     // just checking is ipv4 if true meaning it's available i guess?
     #[test]
     fn socket_test() {
-        let osc_struct_test = OSCSender::new(
-            &Arc::new(Mutex::new("".into())),
-            &Arc::new(Mutex::new("".into())),
-        );
+        let osc_struct_test = OSCSender::new();
 
         assert!(osc_struct_test.socket.local_addr().unwrap().is_ipv4());
     }
 
-    #[test]
-    #[ignore]
-    fn send_test() {
-        let osc_struct_test = OSCSender::new(
-            &Arc::new(Mutex::new("/say_hi".into())),
-            &Arc::new(Mutex::new("9005".into())),
-        );
+    #[tokio::test]
+    async fn send_test() {
+        use rosc::decoder;
+        use tokio::net;
 
-        osc_struct_test.send("test test".into());
+        let receiver = net::UdpSocket::bind("127.0.0.1:9005")
+            .await
+            .expect("test -- failing bind udp socket in test");
+
+        let mut buf: [u8; 32] = [0; 32];
+
+        let mut test_sender = OSCSender::new();
+
+        test_sender.set_path("/say_hi".into());
+        test_sender.set_port("9005".into());
+
+        test_sender.send("hello!".into());
+
+        receiver
+            .recv(&mut buf)
+            .await
+            .expect("test -- recv failed");
+
+        let msg = decoder::decode_udp(&buf)
+            .expect("test -- decoding failed")
+            .1;
+
+        assert_eq!(String::from("/say_hi, (s) hello!"), msg.to_string());
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore]
-    fn send_to_vrc_test() {}
+    async fn send_to_vrc_test() {
+
+    }
 }

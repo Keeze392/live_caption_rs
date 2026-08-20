@@ -15,6 +15,8 @@ use egui_file_dialog::{FileDialog, Filter};
 
 use serde::{Deserialize, Serialize};
 
+use crate::utils::osc::OSCAddress;
+
 // Settings GUI
 #[derive(Default, Serialize, Deserialize)]
 pub struct LiveCaptionSettingsRs {
@@ -28,8 +30,7 @@ pub struct LiveCaptionSettingsRs {
 
     // osc for sender, a text from STT
     pub osc_is_enable: Arc<AtomicBool>,
-    pub osc_output_path: Arc<Mutex<String>>,
-    pub osc_output_port: Arc<Mutex<String>>,
+    pub osc_address: Arc<Mutex<OSCAddress>>,
 
     // history with toggle
     pub save_history_custom_path: Arc<Mutex<Option<PathBuf>>>,
@@ -62,8 +63,6 @@ impl LiveCaptionSettingsRs {
     pub fn new(
         select_model: Arc<Mutex<Option<PathBuf>>>,
         transparent_value: Arc<Mutex<f32>>,
-        osc_output_path: Arc<Mutex<String>>,
-        osc_output_port: Arc<Mutex<String>>,
         devices: Arc<Mutex<Vec<String>>>,
         select_device: Arc<Mutex<Option<String>>>,
         should_restart_audio: Arc<AtomicBool>,
@@ -75,8 +74,6 @@ impl LiveCaptionSettingsRs {
             select_model: select_model,
 
             osc_is_enable: Arc::new(AtomicBool::new(false)),
-            osc_output_path: osc_output_path,
-            osc_output_port: osc_output_port,
 
             is_enable_save_history: Arc::new(AtomicBool::new(false)),
 
@@ -121,8 +118,7 @@ impl LiveCaptionSettingsRs {
             json!(self.is_enable_save_history),
         );
         json_build.insert("select_device".into(), json!(self.select_device));
-        json_build.insert("osc_output_path".into(), json!(self.osc_output_path));
-        json_build.insert("osc_output_port".into(), json!(self.osc_output_port));
+        json_build.insert("osc_address".into(), json!(self.osc_address));
         json_build.insert("osc_is_enable".into(), json!(self.osc_is_enable));
 
         let file = match File::create(config_path) {
@@ -187,8 +183,7 @@ impl LiveCaptionSettingsRs {
         self.save_history_custom_path = unpack_json.save_history_custom_path;
         self.is_enable_save_history = unpack_json.is_enable_save_history;
         self.select_device = unpack_json.select_device;
-        self.osc_output_path = unpack_json.osc_output_path;
-        self.osc_output_port = unpack_json.osc_output_port;
+        self.osc_address = unpack_json.osc_address;
         self.osc_is_enable = unpack_json.osc_is_enable;
     }
 
@@ -201,8 +196,7 @@ impl LiveCaptionSettingsRs {
         let arc_select_model_dialog = Arc::clone(&self.select_model_dialog);
 
         let arc_osc_is_enable = Arc::clone(&self.osc_is_enable);
-        let arc_osc_output_path = Arc::clone(&self.osc_output_path);
-        let arc_osc_output_port = Arc::clone(&self.osc_output_port);
+        let arc_osc_address = Arc::clone(&self.osc_address);
 
         let arc_save_history_custom_path = Arc::clone(&self.save_history_custom_path);
         let arc_save_history_dialog = Arc::clone(&self.save_history_dialog);
@@ -242,8 +236,8 @@ impl LiveCaptionSettingsRs {
 
                     // OSC - expose the output text to outside
                     Self::toggle_osc(ui, &arc_osc_is_enable);
-                    Self::set_text_input_osc_port(ui, &arc_osc_output_port);
-                    Self::set_text_input_osc_path(ui, &arc_osc_output_path);
+                    Self::set_text_input_osc_port(ui, &arc_osc_address);
+                    Self::set_text_input_osc_path(ui, &arc_osc_address);
 
                     ui.separator();
 
@@ -377,30 +371,30 @@ impl LiveCaptionSettingsRs {
     }
 
     #[inline]
-    fn set_text_input_osc_port(ui: &mut egui::Ui, text: &Arc<Mutex<String>>) {
+    fn set_text_input_osc_port(ui: &mut egui::Ui, caption: &Arc<Mutex<OSCAddress>>) {
         ui.label("OSC expose the output text to outside.");
-        let mut text_input = text.lock().unwrap().clone();
+        let mut port = caption.lock().unwrap().port.clone();
 
         ui.horizontal_wrapped(|ui| {
             ui.label("osc port:");
 
-            ui.add(TextEdit::singleline(&mut text_input));
+            ui.add(TextEdit::singleline(&mut port));
         });
 
-        *text.lock().unwrap() = text_input;
+        caption.lock().unwrap().port = port;
     }
 
     #[inline]
-    fn set_text_input_osc_path(ui: &mut egui::Ui, text: &Arc<Mutex<String>>) {
-        let mut text_input = text.lock().unwrap().clone();
+    fn set_text_input_osc_path(ui: &mut egui::Ui, caption: &Arc<Mutex<OSCAddress>>) {
+        let mut path = caption.lock().unwrap().path.clone();
 
         ui.horizontal_wrapped(|ui| {
             ui.label("osc path:");
 
-            ui.add(TextEdit::singleline(&mut text_input));
+            ui.add(TextEdit::singleline(&mut path));
         });
 
-        *text.lock().unwrap() = text_input;
+        caption.lock().unwrap().path = path;
     }
 
     /// select directory for output a History file to that path.

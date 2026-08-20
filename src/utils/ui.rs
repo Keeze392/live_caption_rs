@@ -13,12 +13,17 @@ use std::{
 use eframe::egui;
 use egui::{Color32, FontId, RichText, include_image, widgets};
 
+#[derive(Default)]
+pub struct Caption {
+    pub current: String,
+    pub history: String,
+}
+
 // main GUI
 #[derive(Default)]
 pub struct LiveCaptionRs {
-    // for label, text on main window
-    speech_to_text: Arc<Mutex<String>>,
-    speech_to_text_history: Arc<Mutex<String>>,
+    // for display caption front of UI
+    caption: Arc<Mutex<Caption>>,
 
     // a flag for tell to other thread to stop run
     is_ui_closed: Arc<AtomicBool>,
@@ -36,8 +41,7 @@ pub struct LiveCaptionRs {
 impl LiveCaptionRs {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
-        data_string: Arc<Mutex<String>>,
-        data_string_history: Arc<Mutex<String>>,
+        caption: Arc<Mutex<Caption>>,
         is_ui_closed: Arc<AtomicBool>,
         tx: mpsc::SyncSender<Vec<f32>>,
         live_caption_settings: LiveCaptionSettingsRs,
@@ -48,8 +52,7 @@ impl LiveCaptionRs {
         });
 
         let livecaption = Self {
-            speech_to_text: data_string,
-            speech_to_text_history: data_string_history,
+            caption: caption,
 
             is_ui_closed: Arc::clone(&is_ui_closed),
 
@@ -96,16 +99,17 @@ impl LiveCaptionRs {
     #[inline]
     fn remove_one_wrapped_line(
         ui: &egui::Ui,
-        text_shared: &Arc<Mutex<String>>,
-        custom_path: &Arc<Mutex<Option<PathBuf>>>,
-        is_enable_history: &Arc<AtomicBool>,
+        live_caption: &LiveCaptionRs,
     ) {
         // check if available height is high than 0.0, skip it. No remove here.
         if ui.available_height() > 0.0 {
             return;
         }
 
-        let mut text = text_shared.lock().unwrap();
+        let text = &mut live_caption
+            .caption
+            .lock().unwrap()
+            .current;
 
         let galley = ui.painter().layout(
             text.clone(),
@@ -118,10 +122,15 @@ impl LiveCaptionRs {
         let first_line_len = galley.rows[0].text().len();
 
         // save the delete line to file if is toggle enable
-        if is_enable_history.load(Ordering::Acquire) {
+        if live_caption.settings.is_enable_save_history.load(Ordering::Acquire) {
             Self::save_history_file(
                 text[..first_line_len].to_string(),
-                custom_path.lock().unwrap().clone(),
+                live_caption
+                    .settings
+                    .save_history_custom_path
+                    .lock()
+                    .unwrap()
+                    .clone(),
             );
         }
 
@@ -215,11 +224,12 @@ impl eframe::App for LiveCaptionRs {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // get String safety
-        let text_shared = self.speech_to_text.lock().unwrap().clone();
-        let text_shared_history = self.speech_to_text_history.lock().unwrap().clone();
+        // get caption
+        let caption_sentences = {
+            let caption = self.caption.lock().unwrap();
 
-        let together_text = format!("{text_shared_history} {text_shared}");
+            format!("{} {}", caption.history.clone(), caption.current.clone())
+        };
 
         // get original color then connected with control transparent
         let color = egui::Rgba::from_black_alpha(*self.settings.transparent_value.lock().unwrap())
@@ -253,16 +263,11 @@ impl eframe::App for LiveCaptionRs {
         egui::CentralPanel::default()
             .frame(bg_color)
             .show_inside(ui, |ui| {
-                ui.label(RichText::new(&together_text).color(Color32::WHITE));
+                ui.label(RichText::new(&caption_sentences).color(Color32::WHITE));
 
                 // check if more than 4 lines, remove one oldest line
                 // save one oldest line to history file if enable
-                Self::remove_one_wrapped_line(
-                    &ui,
-                    &self.speech_to_text_history,
-                    &self.settings.save_history_custom_path,
-                    &self.settings.is_enable_save_history,
-                );
+                Self::remove_one_wrapped_line(&ui, &self);
             });
 
         // Settings Window will open if true
@@ -277,9 +282,13 @@ impl eframe::App for LiveCaptionRs {
         if self.settings.should_save_config.load(Ordering::Acquire) {
             self.settings.save_configuration_file();
 
-            // update if change or not, doesn't matter anyway. It may cost a tiny but it's ok
-            self.osc_sender.set_path(&self.settings.osc_output_path);
-            self.osc_sender.set_port(&self.settings.osc_output_port);
+            // this will drop guard once out of scope
+            let osc_address = self.settings.osc_address.lock().unwrap();
+
+            // update both path and port regardless if UI settings closed since it only tiny cost
+            // which acceptable as it does not happen oftne.
+            self.osc_sender.set_path(osc_address.path.clone());
+            self.osc_sender.set_port(osc_address.port.clone());
 
             // set back to false after save config
             self.settings
@@ -315,7 +324,7 @@ impl eframe::App for LiveCaptionRs {
 
         if self.settings.osc_is_enable.load(Ordering::Acquire) {
             // non-vrchat version
-            self.osc_sender.send(together_text);
+            self.osc_sender.send(caption_sentences);
 
             // vrchat version (unfinish, will add in future)
             //self.osc_sender.send_to_vrc(together_text);
@@ -337,8 +346,8 @@ impl eframe::App for LiveCaptionRs {
                 .lock()
                 .unwrap()
                 .clone();
-            let text_shared = self.speech_to_text.lock().unwrap().clone();
-            let text_shared_history = self.speech_to_text_history.lock().unwrap().clone();
+            let text_shared = self.caption.lock().unwrap().current.clone();
+            let text_shared_history = self.caption.lock().unwrap().history.clone();
             let output_text = format!("{}{}", text_shared_history, text_shared);
 
             Self::save_history_file(output_text, path);
