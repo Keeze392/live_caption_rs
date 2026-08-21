@@ -84,13 +84,13 @@ impl LiveCaptionRs {
     /// Check if output text rows higher than GUI, remove old line.
     /// And save the old line to history if enabled.
     #[inline]
-    fn remove_one_wrapped_line(ui: &egui::Ui, live_caption: &LiveCaptionRs) {
+    fn remove_one_wrapped_line(&self, ui: &egui::Ui) {
         // check if available height is high than 0.0, skip it. No remove here.
         if ui.available_height() > 0.0 {
             return;
         }
 
-        let text = &mut live_caption.caption.lock().unwrap().current;
+        let text = &mut self.caption.lock().unwrap().history;
 
         let galley = ui.painter().layout(
             text.clone(),
@@ -103,7 +103,7 @@ impl LiveCaptionRs {
         let first_line_len = galley.rows[0].text().len();
 
         // save the delete line to file if is toggle enable
-        if live_caption
+        if self
             .settings
             .flags
             .is_enable_save_history
@@ -111,7 +111,7 @@ impl LiveCaptionRs {
         {
             Self::save_history_file(
                 text[..first_line_len].to_string(),
-                live_caption
+                self
                     .settings
                     .data
                     .lock()
@@ -256,7 +256,7 @@ impl eframe::App for LiveCaptionRs {
 
                 // check if more than 4 lines, remove one oldest line
                 // save one oldest line to history file if enable
-                Self::remove_one_wrapped_line(&ui, &self);
+                self.remove_one_wrapped_line(&ui);
             });
 
         // Settings Window will open if true
