@@ -25,7 +25,7 @@ use pipewire::{
 };
 use resampler::{ResamplerFir, SampleRate};
 
-use crate::utils::ui_settings::{Data, Settings};
+use crate::utils::ui_settings::Settings;
 
 // pipewire settings
 const SAMPLE_RATE: u32 = 48000;
@@ -383,7 +383,7 @@ impl AudioWorker {
     /// # info
     ///
     /// required taking Arc Owner! use Arc::clone() for it.
-    pub fn get_devices_array(data: Arc<Mutex<Data>>) {
+    pub fn get_devices_array(settings: Arc<Settings>) {
         let mainloop = match MainLoopRc::new(None) {
             Ok(m) => m,
             Err(e) => {
@@ -416,13 +416,13 @@ impl AudioWorker {
             }
         };
 
-        data.lock().unwrap().devices.push("None".to_string());
+        settings.data.lock().unwrap().devices.push("None".to_string());
 
         let _listener = registry
             .add_listener_local()
             .global(move |g| {
                 if let Some(props) = &g.props {
-                    let mut safe_array = data.lock().unwrap();
+                    let mut safe_array = settings.data.lock().unwrap();
 
                     /*if let Some(name) = props.get("application.name") {
                         if !name.is_empty() && !safe_array.contains(&name.to_string()) {

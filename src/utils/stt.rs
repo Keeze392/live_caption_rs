@@ -13,7 +13,7 @@ use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
 };
 
-use crate::utils::{ui::Caption, ui_settings::Data};
+use crate::utils::{ui::Caption, ui_settings::Settings};
 
 const RATE: usize = 16000;
 
@@ -28,7 +28,7 @@ pub struct WhisperSTT {
     rx: mpsc::Receiver<Vec<f32>>,
     caption: Arc<Mutex<Caption>>,
     is_ui_closed: Arc<AtomicBool>,
-    data: Arc<Mutex<Data>>,
+    settings: Arc<Settings>,
 
     buffer_live: Vec<f32>,
     model_file: PathBuf,
@@ -41,7 +41,7 @@ impl WhisperSTT {
         rx: mpsc::Receiver<Vec<f32>>,
         caption: Arc<Mutex<Caption>>,
         is_ui_closed: Arc<AtomicBool>,
-        data: Arc<Mutex<Data>>,
+        settings: Arc<Settings>,
     ) -> Self {
         // for stop spam logs for whatever reasons by add those
         // though docs said it will logs if add, this seem opposite way.
@@ -51,7 +51,7 @@ impl WhisperSTT {
             rx: rx,
             caption: caption,
             is_ui_closed: is_ui_closed,
-            data: data,
+            settings: settings,
 
             buffer_live: Vec::new(),
             model_file: PathBuf::new(),
@@ -73,7 +73,7 @@ impl WhisperSTT {
         // start working
         while !self.is_ui_closed.load(Ordering::Acquire) {
             // get path
-            let new_path_model = self.data.lock().unwrap().select_model.clone();
+            let new_path_model = self.settings.data.lock().unwrap().select_model.clone();
 
             // check if path and file is valid and change model if is different name
             if let Some(path) = new_path_model

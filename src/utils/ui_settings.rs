@@ -66,8 +66,8 @@ pub struct Data {
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Settings {
-    pub flags: Arc<Flags>,
-    pub data: Arc<Mutex<Data>>,
+    pub flags: Flags,
+    pub data: Mutex<Data>,
 }
 
 // settings GUI
@@ -75,8 +75,6 @@ impl Settings {
     pub fn new() -> Self {
         // will load any data otherwise return default if file isn't exist or error
         let settings = Self::load_configuration_file();
-
-        AudioWorker::get_devices_array(Arc::clone(&settings.data));
 
         settings
     }
@@ -153,19 +151,18 @@ impl Settings {
         unpack_json
     }
 
-    pub fn settings_window(&self, ui: &mut egui::Ui) {
-        let data = Arc::clone(&self.data);
-        let flags = Arc::clone(&self.flags);
+    pub fn settings_window(self: &Arc<Self>, ui: &mut egui::Ui) {
+        let settings = Arc::clone(&self);
 
         ui.ctx().show_viewport_deferred(
             egui::ViewportId::from_hash_of("Settings"),
             egui::ViewportBuilder::default().with_title("Settings"),
             move |ui, _| {
                 CentralPanel::default().show_inside(ui, |ui| {
-                    let mut data_guard = data.lock().unwrap();
+                    let mut data_guard = settings.data.lock().unwrap();
 
                     // devices list to pick one device for listening
-                    Self::set_combobox_devices(ui, &mut data_guard, &flags);
+                    Self::set_combobox_devices(ui, &mut data_guard, &settings.flags);
 
                     ui.separator();
 
@@ -180,13 +177,13 @@ impl Settings {
                     ui.separator();
 
                     // OSC - expose the output text to outside
-                    Self::toggle_osc(ui, &flags);
+                    Self::toggle_osc(ui, &settings.flags);
                     Self::set_text_input_osc_port(ui, &mut data_guard);
                     Self::set_text_input_osc_path(ui, &mut data_guard);
 
                     ui.separator();
 
-                    Self::toggle_is_enable_save_history(ui, &flags);
+                    Self::toggle_is_enable_save_history(ui, &settings.flags);
 
                     // save output text to history file
                     Self::set_save_history_custom_path(ui, &mut data_guard);
@@ -196,13 +193,13 @@ impl Settings {
 
                 // close settings GUI if "x" button is pressed
                 if ui.ctx().input(|i| i.viewport().close_requested()) {
-                    flags
+                    settings.flags
                         .should_open_settings_window
                         .store(false, Ordering::Release);
-                    flags.should_save_config.store(true, Ordering::Release);
+                    settings.flags.should_save_config.store(true, Ordering::Release);
 
                     // refresh in case if user going open window again to see if devices get refresh
-                    AudioWorker::get_devices_array(Arc::clone(&data));
+                    AudioWorker::get_devices_array(Arc::clone(&settings));
                 }
             },
         );
@@ -211,7 +208,7 @@ impl Settings {
     /// get audio devices and show combobox for user to pick a choice.
     /// this will refresh every time settings is open incase if user plug something
     #[inline]
-    fn set_combobox_devices(ui: &mut egui::Ui, data: &mut Data, flags: &Arc<Flags>) {
+    fn set_combobox_devices(ui: &mut egui::Ui, data: &mut Data, flags: &Flags) {
         ui.label("Audio Devices, select a device for what should listening on.");
 
         let mut selected = data.select_device.clone();
@@ -294,7 +291,7 @@ impl Settings {
     }
 
     #[inline]
-    fn toggle_osc(ui: &mut egui::Ui, flags: &Arc<Flags>) {
+    fn toggle_osc(ui: &mut egui::Ui, flags: &Flags) {
         ui.label("Enable OSC?");
         let mut toggle_bool = flags.is_enable_osc.load(Ordering::Acquire);
 
@@ -355,7 +352,7 @@ impl Settings {
     }
 
     #[inline]
-    fn toggle_is_enable_save_history(ui: &mut egui::Ui, flags: &Arc<Flags>) {
+    fn toggle_is_enable_save_history(ui: &mut egui::Ui, flags: &Flags) {
         ui.label(format!("Enable history?"));
 
         let mut toggle_bool = flags.is_enable_save_history.load(Ordering::Acquire);

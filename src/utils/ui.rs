@@ -54,17 +54,14 @@ impl LiveCaptionRs {
             ..Default::default()
         };
 
-        println!(
-            "{:?}",
-            livecaption.settings.data.lock().unwrap().select_device
-        );
+        AudioWorker::get_devices_array(Arc::clone(&livecaption.settings));
 
         // spawn Whisper in separate Thread
         WhisperSTT::new(
             rx,
             Arc::clone(&livecaption.caption),
             Arc::clone(&livecaption.is_ui_closed),
-            Arc::clone(&livecaption.settings.data),
+            Arc::clone(&livecaption.settings),
         )
         .spawn();
 
