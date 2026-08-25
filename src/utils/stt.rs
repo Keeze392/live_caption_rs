@@ -48,10 +48,10 @@ impl WhisperSTT {
         whisper_rs::install_logging_hooks();
 
         Self {
-            rx: rx,
-            caption: caption,
-            is_ui_closed: is_ui_closed,
-            settings: settings,
+            rx,
+            caption,
+            is_ui_closed,
+            settings,
 
             buffer_live: Vec::new(),
             model_file: PathBuf::new(),
@@ -83,7 +83,7 @@ impl WhisperSTT {
                 if !std::fs::exists(&path).unwrap_or(true) {
                     eprintln!(
                         "No file found in this path: {}\nPlease go to settings to pick file path for stt model",
-                        &path.to_string_lossy()
+                        path.to_string_lossy()
                     );
                     sleep(Duration::from_secs(1));
                     continue;
@@ -176,7 +176,7 @@ impl WhisperSTT {
                         .lock()
                         .unwrap()
                         .history
-                        .push_str(&*new_full_text_history);
+                        .push_str(&new_full_text_history);
                 }
             }
         }
@@ -188,7 +188,7 @@ impl WhisperSTT {
         params: FullParams,
         buffer: &mut Vec<f32>,
     ) -> String {
-        match whisper.full(params, &buffer) {
+        match whisper.full(params, buffer) {
             Ok(()) => (),
             Err(e) => {
                 eprintln!("Err -- running task whisper failed: {e}");
@@ -213,6 +213,7 @@ impl WhisperSTT {
 
     /// Check the Whisper's output Text, is there junk? If so, return true
     /// ```rust
+    /// #[test]
     /// fn test_is_junk() {
     ///    let junk_words = String::from("bye.");
     ///    assert!(is_junk(&junk_words));
@@ -228,7 +229,7 @@ impl WhisperSTT {
     ///}
     ///```
     #[inline]
-    fn is_junk(text: &String) -> bool {
+    fn is_junk(text: &str) -> bool {
         let text_trimmed: String = text.trim().to_lowercase();
         if text_trimmed.is_empty() {
             return true;

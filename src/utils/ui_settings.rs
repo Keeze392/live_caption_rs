@@ -74,9 +74,7 @@ pub struct Settings {
 impl Settings {
     pub fn new() -> Self {
         // will load any data otherwise return default if file isn't exist or error
-        let settings = Self::load_configuration_file();
-
-        settings
+        Self::load_configuration_file()
     }
 
     /// save configuration so it will remember all settings
@@ -140,7 +138,7 @@ impl Settings {
             }
         };
 
-        let unpack_json: Settings = match serde_json::from_str(&*file) {
+        let unpack_json: Settings = match serde_json::from_str(&file) {
             Ok(val) => val,
             Err(e) => {
                 println!("Error -- Trying unpack json failed: {e}");
@@ -152,7 +150,7 @@ impl Settings {
     }
 
     pub fn settings_window(self: &Arc<Self>, ui: &mut egui::Ui) {
-        let settings = Arc::clone(&self);
+        let settings = Arc::clone(self);
 
         ui.ctx().show_viewport_deferred(
             egui::ViewportId::from_hash_of("Settings"),
@@ -217,16 +215,13 @@ impl Settings {
 
         ui.horizontal_wrapped(|ui| {
             egui::ComboBox::from_label("")
-                .selected_text(format!(
-                    "{}",
-                    selected.clone().unwrap_or("None".to_string())
-                ))
+                .selected_text(selected.clone().unwrap_or("None".to_string()))
                 .show_ui(ui, |ui| {
                     for device in devices {
                         ui.selectable_value(
                             &mut selected,
                             Some(device.clone()),
-                            format!("{}", device),
+                            device,
                         );
                     }
                 })
@@ -353,7 +348,7 @@ impl Settings {
 
     #[inline]
     fn toggle_is_enable_save_history(ui: &mut egui::Ui, flags: &Flags) {
-        ui.label(format!("Enable history?"));
+        ui.label("Enable history?");
 
         let mut toggle_bool = flags.is_enable_save_history.load(Ordering::Acquire);
 

@@ -187,7 +187,6 @@ impl LiveCaptionRs {
             Ok(()) => (),
             Err(e) => {
                 eprintln!("Error -- Failed to write into history file: {e}");
-                return;
             }
         };
     }
@@ -253,7 +252,7 @@ impl eframe::App for LiveCaptionRs {
 
                 // check if more than 4 lines, remove one oldest line
                 // save one oldest line to history file if enable
-                self.remove_one_wrapped_line(&ui);
+                self.remove_one_wrapped_line(ui);
             });
 
         // Settings Window will open if true

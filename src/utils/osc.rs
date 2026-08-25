@@ -60,7 +60,6 @@ impl OSCSender {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("OSC Err -- Sending failed: {e}");
-                    return;
                 }
             }
         }

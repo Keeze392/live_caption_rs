@@ -48,8 +48,8 @@ pub struct AudioWorker {
 impl AudioWorker {
     pub fn new(ui_settings: Arc<Settings>, is_ui_closed: Arc<AtomicBool>) -> Self {
         Self {
-            ui_settings: ui_settings,
-            is_ui_closed: is_ui_closed,
+            ui_settings,
+            is_ui_closed,
         }
     }
 
@@ -67,7 +67,7 @@ impl AudioWorker {
             }
         };
 
-        let context = match ContextBox::new(&mainloop.loop_(), None) {
+        let context = match ContextBox::new(mainloop.loop_(), None) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Err -- Creating context failed: {e}");
@@ -201,7 +201,7 @@ impl AudioWorker {
 
         println!(
             "INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick monitor otherwise does nothing)",
-            &settings_clone
+            settings_clone
                 .data
                 .lock()
                 .unwrap()
@@ -257,7 +257,7 @@ impl AudioWorker {
         let mut out_buf = [0.0; DenoiseState::FRAME_SIZE];
         let mut first = true;
 
-        for chunk in audio_data.chunks_exact(DenoiseState::FRAME_SIZE) {
+        for chunk in audio_data.as_chunks::<{DenoiseState::FRAME_SIZE}>().0 {
             denoise_state.process_frame(&mut out_buf[..], chunk);
 
             if !first {
@@ -277,7 +277,7 @@ impl AudioWorker {
         while !audio_data.is_empty() {
             let mut output = vec![0.0f32; resample_fir.buffer_size_output()];
 
-            let (consumed, produced) = resample_fir.resample(&audio_data, &mut output).unwrap();
+            let (consumed, produced) = resample_fir.resample(audio_data, &mut output).unwrap();
 
             full_output.extend_from_slice(&output[..produced]);
 
@@ -334,10 +334,7 @@ impl AudioWorker {
             }
         };
 
-        let device_name = match select_device.clone() {
-            Some(val) => val,
-            None => return None,
-        };
+        let device_name = select_device.clone()?;
 
         let get_id = Arc::new(Mutex::new(Option::<u32>::None));
         let get_id_clone = Arc::clone(&get_id);
@@ -352,16 +349,14 @@ impl AudioWorker {
                         }
                     }*/
 
-                    if let Some(name) = props.get("device.description") {
-                        if !name.is_empty() && device_name.contains(name) {
+                    if let Some(name) = props.get("device.description")
+                        && !name.is_empty() && device_name.contains(name) {
                             *get_id.lock().unwrap() = Some(g.id);
-                        }
                     }
 
-                    if let Some(name) = props.get("node.description") {
-                        if !name.is_empty() && device_name.contains(name) {
+                    if let Some(name) = props.get("node.description")
+                        && !name.is_empty() && device_name.contains(name) {
                             *get_id.lock().unwrap() = Some(g.id);
-                        }
                     }
                 }
             })
@@ -392,7 +387,7 @@ impl AudioWorker {
             }
         };
 
-        let context = match ContextBox::new(&mainloop.loop_(), None) {
+        let context = match ContextBox::new(mainloop.loop_(), None) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Err -- Creating context failed: {e}");
@@ -431,16 +426,14 @@ impl AudioWorker {
                         }
                     }*/
 
-                    if let Some(name) = props.get("device.description") {
-                        if !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
+                    if let Some(name) = props.get("device.description")
+                        && !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
                             safe_array.devices.push(name.to_string());
-                        }
                     }
 
-                    if let Some(name) = props.get("node.description") {
-                        if !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
+                    if let Some(name) = props.get("node.description")
+                        && !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
                             safe_array.devices.push(name.to_string());
-                        }
                     }
                 }
             })
