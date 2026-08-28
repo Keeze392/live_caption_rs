@@ -191,10 +191,14 @@ impl Settings {
 
                 // close settings GUI if "x" button is pressed
                 if ui.ctx().input(|i| i.viewport().close_requested()) {
-                    settings.flags
+                    settings
+                        .flags
                         .should_open_settings_window
                         .store(false, Ordering::Release);
-                    settings.flags.should_save_config.store(true, Ordering::Release);
+                    settings
+                        .flags
+                        .should_save_config
+                        .store(true, Ordering::Release);
 
                     // refresh in case if user going open window again to see if devices get refresh
                     AudioWorker::get_devices_array(Arc::clone(&settings));
@@ -218,11 +222,7 @@ impl Settings {
                 .selected_text(selected.clone().unwrap_or("None".to_string()))
                 .show_ui(ui, |ui| {
                     for device in devices {
-                        ui.selectable_value(
-                            &mut selected,
-                            Some(device.clone()),
-                            device,
-                        );
+                        ui.selectable_value(&mut selected, Some(device.clone()), device);
                     }
                 })
         });

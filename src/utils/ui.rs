@@ -1,7 +1,7 @@
-use crate::utils::osc::OSCSender;
-use crate::utils::ui_settings::Settings;
-use crate::utils::stt::WhisperSTT;
 use crate::utils::audio_linux::AudioWorker;
+use crate::utils::osc::OSCSender;
+use crate::utils::stt::WhisperSTT;
+use crate::utils::ui_settings::Settings;
 
 use std::{
     fs,
@@ -108,8 +108,7 @@ impl LiveCaptionRs {
         {
             Self::save_history_file(
                 text[..first_line_len].to_string(),
-                self
-                    .settings
+                self.settings
                     .data
                     .lock()
                     .unwrap()

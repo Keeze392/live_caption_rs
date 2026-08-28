@@ -257,7 +257,7 @@ impl AudioWorker {
         let mut out_buf = [0.0; DenoiseState::FRAME_SIZE];
         let mut first = true;
 
-        for chunk in audio_data.as_chunks::<{DenoiseState::FRAME_SIZE}>().0 {
+        for chunk in audio_data.as_chunks::<{ DenoiseState::FRAME_SIZE }>().0 {
             denoise_state.process_frame(&mut out_buf[..], chunk);
 
             if !first {
@@ -350,13 +350,17 @@ impl AudioWorker {
                     }*/
 
                     if let Some(name) = props.get("device.description")
-                        && !name.is_empty() && device_name.contains(name) {
-                            *get_id.lock().unwrap() = Some(g.id);
+                        && !name.is_empty()
+                        && device_name.contains(name)
+                    {
+                        *get_id.lock().unwrap() = Some(g.id);
                     }
 
                     if let Some(name) = props.get("node.description")
-                        && !name.is_empty() && device_name.contains(name) {
-                            *get_id.lock().unwrap() = Some(g.id);
+                        && !name.is_empty()
+                        && device_name.contains(name)
+                    {
+                        *get_id.lock().unwrap() = Some(g.id);
                     }
                 }
             })
@@ -411,7 +415,12 @@ impl AudioWorker {
             }
         };
 
-        settings.data.lock().unwrap().devices.push("None".to_string());
+        settings
+            .data
+            .lock()
+            .unwrap()
+            .devices
+            .push("None".to_string());
 
         let _listener = registry
             .add_listener_local()
@@ -427,13 +436,17 @@ impl AudioWorker {
                     }*/
 
                     if let Some(name) = props.get("device.description")
-                        && !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
-                            safe_array.devices.push(name.to_string());
+                        && !name.is_empty()
+                        && !safe_array.devices.contains(&name.to_string())
+                    {
+                        safe_array.devices.push(name.to_string());
                     }
 
                     if let Some(name) = props.get("node.description")
-                        && !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
-                            safe_array.devices.push(name.to_string());
+                        && !name.is_empty()
+                        && !safe_array.devices.contains(&name.to_string())
+                    {
+                        safe_array.devices.push(name.to_string());
                     }
                 }
             })
