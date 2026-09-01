@@ -17,9 +17,9 @@ time = "0.3.47"
 egui-file-dialog = "0.13.0"
 nnnoiseless = "0.5.2"
 resampler = "0.5.1"
-pipewire = "0.9.2"
-libspa = "0.9.2"
-spa_sys = { package = "libspa-sys", version = "0.9.2" }
+pipewire = "0.10.1"
+libspa = "0.10.1"
+spa_sys = { package = "libspa-sys", version = "0.10.1" }
 
 [dev-dependencies]
 tokio = { version = "1.53", features = ["full"] }
