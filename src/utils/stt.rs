@@ -165,8 +165,10 @@ impl WhisperSTT {
                     new_full_text_history = Self::task_whisper(
                         inside_state,
                         params,
-                        &mut self.buffer_live.drain(..buf_sample_len).collect(),
+                        &mut self.buffer_live[..buf_sample_len],
                     );
+
+                    self.buffer_live.drain(..buf_sample_len);
                 }
 
                 // send text output to GUI thread
@@ -186,7 +188,7 @@ impl WhisperSTT {
     fn task_whisper(
         whisper: &mut WhisperState,
         params: FullParams,
-        buffer: &mut Vec<f32>,
+        buffer: &mut [f32],
     ) -> String {
         match whisper.full(params, buffer) {
             Ok(()) => (),
@@ -213,7 +215,7 @@ impl WhisperSTT {
 
     /// Check the Whisper's output Text, is there junk? If so, return true
     /// ```rust
-    /// #[test]
+    /// test
     /// fn test_is_junk() {
     ///    let junk_words = String::from("bye.");
     ///    assert!(is_junk(&junk_words));
@@ -221,7 +223,7 @@ impl WhisperSTT {
     ///}
     ///```
     ///```rust
-    ///#[test]
+    /// test
     ///fn test_is_not_junk() {
     ///    let good_words = String::from("Hello how are you? i see, bye.");
     ///    assert!(!is_junk(&good_words));

@@ -200,7 +200,7 @@ impl AudioWorker {
         let device_id = Self::get_device_id(&settings_clone.data.lock().unwrap().select_device);
 
         println!(
-            "INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick monitor otherwise does nothing)",
+            "INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick device otherwise does nothing)",
             settings_clone
                 .data
                 .lock()
