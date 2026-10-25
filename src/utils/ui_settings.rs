@@ -21,6 +21,7 @@ use crate::utils::osc::OSCAddress;
 #[derive(Default, Serialize, Deserialize)]
 pub struct Flags {
     pub is_enable_osc: AtomicBool,
+    pub is_enable_vrc_osc: AtomicBool,
 
     pub is_enable_save_history: AtomicBool,
 
@@ -80,7 +81,7 @@ impl Settings {
     /// save configuration so it will remember all settings
     /// resize window, settings gui infonmation etc.
     pub fn save_configuration_file(&self) {
-        let config_path: String = match dirs::data_local_dir() {
+        let config_path = match dirs::data_local_dir() {
             Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
             None => {
                 eprintln!("get config path failed");
@@ -88,7 +89,7 @@ impl Settings {
             }
         };
 
-        let json = serde_json::json!(&self);
+        let json = serde_json::json!(self);
 
         let file = match File::create(config_path) {
             Ok(val) => val,
@@ -100,21 +101,15 @@ impl Settings {
 
         // write a file
         let mut writer = BufWriter::new(file);
-        match serde_json::to_writer_pretty(&mut writer, &json) {
-            Ok(()) => (),
-            Err(e) => {
-                eprintln!("Failed to write a config file: {e}");
-                return;
-            }
-        }
+        if let Err(e) = serde_json::to_writer_pretty(&mut writer, &json) {
+            eprintln!("Failed to write a config file: {e}");
+            return;
+        };
 
-        match writer.flush() {
-            Ok(()) => (),
-            Err(e) => {
-                eprintln!("Failed to flush the writer {e}");
-                return;
-            }
-        }
+        if let Err(e) = writer.flush() {
+            eprintln!("Failed to flush the writer {e}");
+            return;
+        };
 
         println!("INFO -- Save configuration successfully");
     }
@@ -122,7 +117,7 @@ impl Settings {
     /// load only at start up GUI.
     #[inline]
     fn load_configuration_file() -> Settings {
-        let config_path: String = match dirs::data_local_dir() {
+        let config_path = match dirs::data_local_dir() {
             Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
             None => {
                 eprintln!("Error -- get config path failed");
@@ -130,12 +125,9 @@ impl Settings {
             }
         };
 
-        let file = match std::fs::read_to_string(config_path) {
-            Ok(val) => val,
-            Err(_) => {
-                eprintln!("Skipping -- No confing file to load");
-                return Self::default();
-            }
+        let Ok(file) = std::fs::read_to_string(config_path) else {
+            eprintln!("Skipping -- No confing file to load");
+            return Self::default();
         };
 
         let unpack_json: Settings = match serde_json::from_str(&file) {
@@ -179,6 +171,9 @@ impl Settings {
                     Self::set_text_input_osc_port(ui, &mut data_guard);
                     Self::set_text_input_osc_path(ui, &mut data_guard);
 
+                    // OSC - Vrchat only
+                    Self::toggle_vrc_osc(ui, &settings.flags);
+
                     ui.separator();
 
                     Self::toggle_is_enable_save_history(ui, &settings.flags);
@@ -191,10 +186,14 @@ impl Settings {
 
                 // close settings GUI if "x" button is pressed
                 if ui.ctx().input(|i| i.viewport().close_requested()) {
-                    settings.flags
+                    settings
+                        .flags
                         .should_open_settings_window
                         .store(false, Ordering::Release);
-                    settings.flags.should_save_config.store(true, Ordering::Release);
+                    settings
+                        .flags
+                        .should_save_config
+                        .store(true, Ordering::Release);
 
                     // refresh in case if user going open window again to see if devices get refresh
                     AudioWorker::get_devices_array(Arc::clone(&settings));
@@ -218,11 +217,7 @@ impl Settings {
                 .selected_text(selected.clone().unwrap_or("None".to_string()))
                 .show_ui(ui, |ui| {
                     for device in devices {
-                        ui.selectable_value(
-                            &mut selected,
-                            Some(device.clone()),
-                            device,
-                        );
+                        ui.selectable_value(&mut selected, Some(device.clone()), device);
                     }
                 })
         });
@@ -293,6 +288,17 @@ impl Settings {
         ui.checkbox(&mut toggle_bool, "OSC");
 
         flags.is_enable_osc.store(toggle_bool, Ordering::Release);
+    }
+
+    #[inline]
+    fn toggle_vrc_osc(ui: &mut egui::Ui, flags: &Flags) {
+        ui.label("Enable VRC OSC?");
+        let mut toggle_bool = flags.is_enable_vrc_osc.load(Ordering::Acquire);
+
+        ui.label("This will ignore OSC port & path but using VRC default instead.");
+        ui.checkbox(&mut toggle_bool, "Vrchat OSC");
+
+        flags.is_enable_vrc_osc.store(toggle_bool, Ordering::Release);
     }
 
     #[inline]

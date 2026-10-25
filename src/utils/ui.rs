@@ -1,7 +1,7 @@
-use crate::utils::osc::OSCSender;
-use crate::utils::ui_settings::Settings;
-use crate::utils::stt::WhisperSTT;
 use crate::utils::audio_linux::AudioWorker;
+use crate::utils::osc::OSCSender;
+use crate::utils::stt::WhisperSTT;
+use crate::utils::ui_settings::Settings;
 
 use std::{
     fs,
@@ -25,6 +25,7 @@ pub struct Caption {
 pub struct LiveCaptionRs {
     /// for display caption front of UI
     caption: Arc<Mutex<Caption>>,
+    is_new_message: Arc<AtomicBool>,
 
     /// a flag for tell to other thread to stop run
     is_ui_closed: Arc<AtomicBool>,
@@ -62,6 +63,7 @@ impl LiveCaptionRs {
             Arc::clone(&livecaption.caption),
             Arc::clone(&livecaption.is_ui_closed),
             Arc::clone(&livecaption.settings),
+            Arc::clone(&livecaption.is_new_message),
         )
         .spawn();
 
@@ -108,8 +110,7 @@ impl LiveCaptionRs {
         {
             Self::save_history_file(
                 text[..first_line_len].to_string(),
-                self
-                    .settings
+                self.settings
                     .data
                     .lock()
                     .unwrap()
@@ -183,7 +184,14 @@ impl LiveCaptionRs {
             }
         };
 
-        match file.write_all(format!("{}\n", output_text).as_bytes()) {
+        match file.write_all(format!("[{}/{}/{} || {}:{}:{}] {}\n", 
+            date.year(), 
+            date.month(),
+            date.day(),
+            date.hour(),
+            date.minute(),
+            date.second(),
+            output_text).as_bytes()) {
             Ok(()) => (),
             Err(e) => {
                 eprintln!("Error -- Failed to write into history file: {e}");
@@ -316,12 +324,18 @@ impl eframe::App for LiveCaptionRs {
                 .store(false, Ordering::Release);
         }
 
-        if self.settings.flags.is_enable_osc.load(Ordering::Acquire) {
+        // send to vrc though osc if osc vrc enabled
+        if self.is_new_message.load(Ordering::Acquire) &&
+            self.settings.flags.is_enable_vrc_osc.load(Ordering::Acquire) {
+            self.osc_sender.send_to_vrc(caption_sentences);
+            self.is_new_message.store(false, Ordering::Release);
+
+        // send to non-vrc though osc if osc enabled
+        } else if self.is_new_message.load(Ordering::Acquire) &&
+            self.settings.flags.is_enable_osc.load(Ordering::Acquire) {
             // non-vrchat version
             self.osc_sender.send(caption_sentences);
-
-            // vrchat version (unfinish, will add in future)
-            //self.osc_sender.send_to_vrc(together_text);
+            self.is_new_message.store(false, Ordering::Release);
         }
 
         // limited to 50 fps, think enough. Yes i know this is hard-coded

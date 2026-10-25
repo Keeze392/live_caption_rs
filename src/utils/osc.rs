@@ -65,9 +65,39 @@ impl OSCSender {
         }
     }
 
-    // plan to add for vrc in future
-    pub fn _send_to_vrc(&self) {
-        unimplemented!()
+    /// send message to Vrchat chatbox popup immediately
+    pub fn send_to_vrc(&self, text: String) {
+        let temp: String;
+
+        if text.len() > 144 {
+            temp = text[(text.len() - 144)..text.len()].into();
+        } else {
+            temp = text;
+        }
+
+        let msg = OscMessage {
+            addr: "/chatbox/input".into(),
+            args: vec![OscType::String(temp), OscType::Bool(true)],
+        };
+
+        let packet = OscPacket::Message(msg);
+
+        let buf = match encoder::encode(&packet) {
+            Ok(val) => val,
+            Err(e) => {
+                eprintln!("OSC Err -- encoding a packet failed: {e}");
+                return;
+            }
+        };
+
+        let full_addr_target = String::from("127.0.0.1:9000");
+
+        match self.socket.send_to(&buf, full_addr_target) {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("OSC Err -- Sending failed: {e}");
+            }
+        }
     }
 }
 

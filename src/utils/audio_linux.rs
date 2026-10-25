@@ -1,4 +1,8 @@
 use std::{
+    arch::x86_64::{
+        _mm256_add_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_storeu_ps,
+        _mm512_add_ps, _mm512_loadu_ps, _mm512_mul_ps, _mm512_setzero_ps, _mm512_storeu_ps,
+    },
     sync::{
         Arc, Mutex,
         atomic::{
@@ -11,7 +15,6 @@ use std::{
     time::Duration,
 };
 
-use nnnoiseless::DenoiseState;
 use pipewire::{
     context::ContextBox,
     main_loop::MainLoopRc,
@@ -23,19 +26,12 @@ use pipewire::{
     },
     stream::{StreamBox, StreamFlags},
 };
-use resampler::{ResamplerFir, SampleRate};
 
 use crate::utils::ui_settings::Settings;
 
 // pipewire settings
-const SAMPLE_RATE: u32 = 48000;
+const SAMPLE_RATE: u32 = 16000;
 const CHANNEL: u32 = 1;
-
-// for resample
-// from pipewire record settings
-const INPUT_RESAMPLE_RATE: SampleRate = SampleRate::Hz48000;
-// downsample to 16khz, this should stay for Whisper requirement
-const OUTPUT_RESAMPLE_RATE: SampleRate = SampleRate::Hz16000;
 
 // for sample rate record every around 0.5s (24000 samples) total
 const SAMPLE_CHUNK: u32 = SAMPLE_RATE / 2;
@@ -99,17 +95,23 @@ impl AudioWorker {
             Err(e) => panic!("Err -- Creating stream failed: {e}"),
         };
 
-        let mut audio_data_buffer: Vec<f32> = Vec::with_capacity(24_150);
+        // check CPU if has support feature for SIMD otherwise fallback
+        let selected_rms_function: unsafe fn(&[f32]) -> bool = if is_x86_feature_detected!(
+            "avx512f"
+        ) {
+            println!("INFO -- avx512 supported detected! SIMD activated");
+            Self::is_silent_rms_avx512
+        } else if is_x86_feature_detected!("avx2") {
+            println!("INFO -- avx2 supported detected! SIMD activated");
+            Self::is_silent_rms_avx2
+        } else {
+            println!(
+                "INFO -- No avx2 or avx512 supported detected, fallback scalar mode. SIMD deactivated"
+            );
+            Self::is_silent_rms
+        };
 
-        let mut denoise_state = DenoiseState::new();
-
-        let mut resampler_fir = ResamplerFir::new(
-            CHANNEL as usize,
-            INPUT_RESAMPLE_RATE,
-            OUTPUT_RESAMPLE_RATE,
-            resampler::Latency::Sample64,
-            resampler::Attenuation::default(),
-        );
+        let mut audio_data_buf: Vec<f32> = Vec::with_capacity(8192);
 
         // clone for some stuff at near end of close bracket before move self outside.
         let mainloop_clone = mainloop.clone();
@@ -119,10 +121,10 @@ impl AudioWorker {
         let _listener = match stream
             .add_local_listener::<()>()
             .process(move |stream, _data| {
-                let buffer = stream.dequeue_buffer();
+                let buf = stream.dequeue_buffer();
 
-                if let Some(mut inside_buffer) = buffer {
-                    for data in inside_buffer.datas_mut() {
+                if let Some(mut buf_inner) = buf {
+                    for data in buf_inner.datas_mut() {
                         let chunk = data.chunk();
                         let size = chunk.size() as usize;
                         if size == 0 {
@@ -137,22 +139,18 @@ impl AudioWorker {
                             std::slice::from_raw_parts(bytes.as_ptr() as *const f32, size / 4)
                         };
 
-                        audio_data_buffer.extend_from_slice(samples);
+                        audio_data_buf.extend_from_slice(samples);
 
-                        if audio_data_buffer.len() >= SAMPLE_CHUNK as usize {
-                            let mut temp_buffer = std::mem::take(&mut audio_data_buffer);
+                        if audio_data_buf.len() >= SAMPLE_CHUNK as usize {
+                            let temp = std::mem::take(&mut audio_data_buf);
 
-                            // remove any noise background
-                            temp_buffer = AudioWorker::denoise(&temp_buffer, &mut denoise_state);
-
-                            // downsample from 48khz to 16khz
-                            temp_buffer =
-                                AudioWorker::downsample_audio(&temp_buffer, &mut resampler_fir);
+                            // reserve again to keep low capacity enough to avoid waste unused cause of auto resize.
+                            audio_data_buf.reserve_exact(8192);
 
                             // check if it's silence samples, no need clear
-                            // cause out of scope meaning temp_buffer will dropped.
-                            if !self.is_silent_rms(&temp_buffer) {
-                                match tx.send(temp_buffer) {
+                            // cause out of scope meaning temp will dropped.
+                            if unsafe { !selected_rms_function(&temp) } {
+                                match tx.send(temp) {
                                     Ok(()) => (),
                                     Err(_) => continue,
                                 }
@@ -248,47 +246,71 @@ impl AudioWorker {
         println!("INFO -- Audio Thread has exited successfully!");
     }
 
-    /// RNNoise, is it high quality to kill any background noises.
-    /// # Information
-    /// edited: (apparently it wasn't high quality model by default lol)
-    #[inline]
-    fn denoise(audio_data: &[f32], denoise_state: &mut DenoiseState) -> Vec<f32> {
-        let mut output: Vec<f32> = Vec::new();
-        let mut out_buf = [0.0; DenoiseState::FRAME_SIZE];
-        let mut first = true;
+    /// return true if audio level is too below the minimum requirement.
+    /// SIMD using avx512f for sweet 512bits
+    #[target_feature(enable = "avx512f")]
+    unsafe fn is_silent_rms_avx512(audio_data: &[f32]) -> bool {
+        unsafe {
+            let (chunks, remainder) = audio_data.as_chunks::<16>();
 
-        for chunk in audio_data.as_chunks::<{DenoiseState::FRAME_SIZE}>().0 {
-            denoise_state.process_frame(&mut out_buf[..], chunk);
+            let mut sum = _mm512_setzero_ps();
 
-            if !first {
-                output.extend_from_slice(&out_buf[..]);
+            for chunk in chunks {
+                let values = _mm512_loadu_ps(chunk.as_ptr());
+                let squard = _mm512_mul_ps(values, values);
+                sum = _mm512_add_ps(sum, squard);
             }
-            first = false;
+
+            let mut result = [0.0f32; 16];
+            _mm512_storeu_ps(result.as_mut_ptr(), sum);
+
+            let mut total = result.iter().sum::<f32>();
+
+            for &i in remainder {
+                total += i * i;
+            }
+
+            let rms = (total / audio_data.len() as f32).sqrt();
+
+            // adjust number if filter job isn't satisfied
+            rms < 0.003
         }
-
-        output
-    }
-
-    /// Resample 48khz to 16khz for meet Whisper's requirement also keeping the channel at 1.
-    #[inline]
-    fn downsample_audio(mut audio_data: &[f32], resample_fir: &mut ResamplerFir) -> Vec<f32> {
-        let mut full_output: Vec<f32> = Vec::new();
-
-        while !audio_data.is_empty() {
-            let mut output = vec![0.0f32; resample_fir.buffer_size_output()];
-
-            let (consumed, produced) = resample_fir.resample(audio_data, &mut output).unwrap();
-
-            full_output.extend_from_slice(&output[..produced]);
-
-            audio_data = &audio_data[consumed..];
-        }
-
-        full_output
     }
 
     /// return true if audio level is too below the minimum requirement.
-    fn is_silent_rms(&self, audio_data: &[f32]) -> bool {
+    /// SIMD using avx2 for sweet 256bits
+    #[target_feature(enable = "avx2")]
+    unsafe fn is_silent_rms_avx2(audio_data: &[f32]) -> bool {
+        unsafe {
+            let (chunks, remainder) = audio_data.as_chunks::<8>();
+
+            let mut sum = _mm256_setzero_ps();
+
+            for chunk in chunks {
+                let values = _mm256_loadu_ps(chunk.as_ptr());
+                let squard = _mm256_mul_ps(values, values);
+                sum = _mm256_add_ps(sum, squard);
+            }
+
+            let mut result = [0.0f32; 8];
+            _mm256_storeu_ps(result.as_mut_ptr(), sum);
+
+            let mut total = result.iter().sum::<f32>();
+
+            for &i in remainder {
+                total += i * i;
+            }
+
+            let rms = (total / audio_data.len() as f32).sqrt();
+
+            // adjust number if filter job isn't satisfied
+            rms < 0.003
+        }
+    }
+
+    /// For people who doesn't has feature avx512 or avx2, this is fallback version.
+    /// return true if audio level is too below the minimum requirement.
+    fn is_silent_rms(audio_data: &[f32]) -> bool {
         if audio_data.is_empty() {
             return true;
         }
@@ -350,13 +372,17 @@ impl AudioWorker {
                     }*/
 
                     if let Some(name) = props.get("device.description")
-                        && !name.is_empty() && device_name.contains(name) {
-                            *get_id.lock().unwrap() = Some(g.id);
+                        && !name.is_empty()
+                        && device_name.contains(name)
+                    {
+                        *get_id.lock().unwrap() = Some(g.id);
                     }
 
                     if let Some(name) = props.get("node.description")
-                        && !name.is_empty() && device_name.contains(name) {
-                            *get_id.lock().unwrap() = Some(g.id);
+                        && !name.is_empty()
+                        && device_name.contains(name)
+                    {
+                        *get_id.lock().unwrap() = Some(g.id);
                     }
                 }
             })
@@ -411,7 +437,12 @@ impl AudioWorker {
             }
         };
 
-        settings.data.lock().unwrap().devices.push("None".to_string());
+        settings
+            .data
+            .lock()
+            .unwrap()
+            .devices
+            .push("None".to_string());
 
         let _listener = registry
             .add_listener_local()
@@ -427,13 +458,17 @@ impl AudioWorker {
                     }*/
 
                     if let Some(name) = props.get("device.description")
-                        && !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
-                            safe_array.devices.push(name.to_string());
+                        && !name.is_empty()
+                        && !safe_array.devices.contains(&name.to_string())
+                    {
+                        safe_array.devices.push(name.to_string());
                     }
 
                     if let Some(name) = props.get("node.description")
-                        && !name.is_empty() && !safe_array.devices.contains(&name.to_string()) {
-                            safe_array.devices.push(name.to_string());
+                        && !name.is_empty()
+                        && !safe_array.devices.contains(&name.to_string())
+                    {
+                        safe_array.devices.push(name.to_string());
                     }
                 }
             })

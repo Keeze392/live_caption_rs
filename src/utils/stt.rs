@@ -29,6 +29,7 @@ pub struct WhisperSTT {
     caption: Arc<Mutex<Caption>>,
     is_ui_closed: Arc<AtomicBool>,
     settings: Arc<Settings>,
+    is_new_message: Arc<AtomicBool>,
 
     buffer_live: Vec<f32>,
     model_file: PathBuf,
@@ -42,6 +43,7 @@ impl WhisperSTT {
         caption: Arc<Mutex<Caption>>,
         is_ui_closed: Arc<AtomicBool>,
         settings: Arc<Settings>,
+        is_new_message: Arc<AtomicBool>
     ) -> Self {
         // for stop spam logs for whatever reasons by add those
         // though docs said it will logs if add, this seem opposite way.
@@ -52,6 +54,7 @@ impl WhisperSTT {
             caption,
             is_ui_closed,
             settings,
+            is_new_message,
 
             buffer_live: Vec::new(),
             model_file: PathBuf::new(),
@@ -173,23 +176,17 @@ impl WhisperSTT {
 
                 // send text output to GUI thread
                 if !new_full_text.trim().is_empty() || !new_full_text_history.trim().is_empty() {
-                    self.caption.lock().unwrap().current = new_full_text;
-                    self.caption
-                        .lock()
-                        .unwrap()
-                        .history
-                        .push_str(&new_full_text_history);
+                    let mut update = self.caption.lock().unwrap();
+                    update.current = new_full_text;
+                    update.history.push_str(&new_full_text_history);
+                    self.is_new_message.store(true, Ordering::Release);
                 }
             }
         }
     }
 
     /// Whisper will start process translate Speech Audio to Text output.
-    fn task_whisper(
-        whisper: &mut WhisperState,
-        params: FullParams,
-        buffer: &mut [f32],
-    ) -> String {
+    fn task_whisper(whisper: &mut WhisperState, params: FullParams, buffer: &mut [f32]) -> String {
         match whisper.full(params, buffer) {
             Ok(()) => (),
             Err(e) => {
