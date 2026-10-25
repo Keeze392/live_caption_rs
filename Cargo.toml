@@ -23,3 +23,8 @@ spa_sys = { package = "libspa-sys", version = "0.10.1" }
 
 [dev-dependencies]
 tokio = { version = "1.53", features = ["full"] }
+criterion = "0.8.2"
+
+[[bench]]
+name = "sum_squares"
+harness = false
