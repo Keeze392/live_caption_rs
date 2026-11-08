@@ -51,6 +51,11 @@ pub struct Data {
     #[serde(skip)]
     pub select_model_dialog: FileDialog,
 
+    // vad model for STT, a noise filter model
+    pub select_vad_model: Option<PathBuf>,
+    #[serde(skip)]
+    pub select_vad_model_dialog: FileDialog,
+
     // osc for sender, a text from STT
     pub osc_address: OSCAddress,
 
@@ -148,7 +153,7 @@ impl Settings {
             egui::ViewportId::from_hash_of("Settings"),
             egui::ViewportBuilder::default().with_title("Settings"),
             move |ui, _| {
-                CentralPanel::default().show_inside(ui, |ui| {
+                CentralPanel::default().show(ui, |ui| {
                     let mut data_guard = settings.data.lock().unwrap();
 
                     // devices list to pick one device for listening
@@ -156,8 +161,13 @@ impl Settings {
 
                     ui.separator();
 
-                    // button to open new window for select model file
+                    // button to open new window for select model file with .bin
                     Self::set_select_model(ui, &mut data_guard);
+
+                    ui.label("");
+
+                    // button to open new window for select VAD model file with .onnx
+                    Self::set_select_vad_model(ui, &mut data_guard);
 
                     ui.separator();
 
@@ -170,6 +180,8 @@ impl Settings {
                     Self::toggle_osc(ui, &settings.flags);
                     Self::set_text_input_osc_port(ui, &mut data_guard);
                     Self::set_text_input_osc_path(ui, &mut data_guard);
+
+                    ui.label("");
 
                     // OSC - Vrchat only
                     Self::toggle_vrc_osc(ui, &settings.flags);
@@ -261,10 +273,48 @@ impl Settings {
                 .to_string_lossy()
         ));
 
-        data.select_model_dialog.update(ui);
+        data.select_model_dialog.update(ui.ctx());
 
         if let Some(path) = data.select_model_dialog.take_picked() {
             data.select_model = Some(path.to_path_buf());
+        }
+    }
+
+    /// pop up new window for select file model begin with ".onnx"
+    #[inline]
+    fn set_select_vad_model(ui: &mut egui::Ui, data: &mut Data) {
+        ui.label("(Optional) Select VAD model add to Whisper model");
+
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Open").clicked() {
+                let dialog = std::mem::take(&mut data.select_vad_model_dialog)
+                    .show_all_files_filter(false)
+                    .default_file_filter("onnx")
+                    .add_file_filter(
+                        "onnx",
+                        Filter::new(|path: &Path| path.extension().unwrap_or_default() == "onnx"),
+                    )
+                    .max_selections(1);
+
+                data.select_vad_model_dialog = dialog;
+
+                data.select_vad_model_dialog.pick_file();
+            }
+        });
+        ui.label(format!(
+            "model: {}",
+            data.select_vad_model
+                .as_ref()
+                .unwrap_or(&PathBuf::from("None"))
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+        ));
+
+        data.select_vad_model_dialog.update(ui);
+
+        if let Some(path) = data.select_vad_model_dialog.take_picked() {
+            data.select_vad_model = Some(path.to_path_buf());
         }
     }
 

@@ -10,7 +10,7 @@ use std::{
 };
 
 use whisper_rs::{
-    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState, WhisperVadParams,
 };
 
 use crate::utils::{ui::Caption, ui_settings::Settings};
@@ -33,6 +33,7 @@ pub struct WhisperSTT {
 
     buffer_live: Vec<f32>,
     model_file: PathBuf,
+    vad_model_file: PathBuf,
     ctx: Option<WhisperContext>,
     state: Option<WhisperState>,
 }
@@ -58,6 +59,7 @@ impl WhisperSTT {
 
             buffer_live: Vec::new(),
             model_file: PathBuf::new(),
+            vad_model_file: PathBuf::new(),
             ctx: None,
             state: None,
         }
@@ -77,13 +79,14 @@ impl WhisperSTT {
         while !self.is_ui_closed.load(Ordering::Acquire) {
             // get path
             let new_path_model = self.settings.data.lock().unwrap().select_model.clone();
+            let new_path_vad_model = self.settings.data.lock().unwrap().select_vad_model.clone();
 
             // check if path and file is valid and change model if is different name
             if let Some(path) = new_path_model
                 && path != self.model_file
             {
                 // check if file is available in that path
-                if !std::fs::exists(&path).unwrap_or(true) {
+                if !path.exists() {
                     eprintln!(
                         "No file found in this path: {}\nPlease go to settings to pick file path for stt model",
                         path.to_string_lossy()
@@ -117,6 +120,23 @@ impl WhisperSTT {
                 }
             }
 
+            // check if VAD model is valid and update if is different than current
+            if let Some(vad_path) = new_path_vad_model
+                && vad_path != self.vad_model_file
+            {
+                // check if file is exist
+                if !vad_path.exists() {
+                    eprintln!("No vad model file found in this path: {}",
+                        vad_path.to_string_lossy()
+                    );
+
+                    sleep(Duration::from_secs(1));
+                    continue;
+                }
+
+                self.vad_model_file = vad_path;
+            }
+
             if let Some(inside_state) = self.state.as_mut() {
                 // get data from channel
                 let mut buffer_new: Vec<f32> = match self.rx.recv() {
@@ -130,7 +150,6 @@ impl WhisperSTT {
 
                 // set params object up (struct)
                 let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 5 });
-
                 params.set_max_tokens(32);
                 params.set_print_progress(false);
                 params.set_print_timestamps(false);
@@ -139,6 +158,16 @@ impl WhisperSTT {
                 params.set_no_timestamps(true);
                 params.set_no_context(true);
                 params.set_no_speech_thold(0.7);
+
+                // check if vad model is available, enable it
+                if self.vad_model_file.exists() {
+                    // vad model
+                    let vad_params = WhisperVadParams::new();
+
+                    params.set_vad_model_path(Some(&self.vad_model_file.to_string_lossy()));
+                    params.set_vad_params(vad_params);
+                    params.enable_vad(true);
+                }
 
                 // -----------------------------------------------------------------------
                 // buffer manager

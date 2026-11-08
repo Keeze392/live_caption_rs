@@ -236,7 +236,7 @@ impl eframe::App for LiveCaptionRs {
             .resizable(false)
             .show_separator_line(false)
             .min_size(0.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 let squard_size: f32 = 32.5;
                 let b_settings = ui.add(
                     widgets::Button::image(include_image!("../settings-icon-2.png"))
@@ -255,7 +255,7 @@ impl eframe::App for LiveCaptionRs {
         // Label from speech to text
         egui::CentralPanel::default()
             .frame(bg_color)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.label(RichText::new(&caption_sentences).color(Color32::WHITE));
 
                 // check if more than 4 lines, remove one oldest line
