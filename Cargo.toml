@@ -4,17 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-eframe = { version = "0.34", features = ["persistence"] }
-egui = "0.34"
-egui_extras = { version = "0.34", features = ["image"] }
+eframe = { version = "0.36", features = ["persistence"] }
+egui = "0.36"
+egui_extras = { version = "0.36", features = ["image"] }
 whisper-rs = { version = "0.16.0", features = ["vulkan"] }
 env_logger = "0.11.10"
-dirs = "6.0.0"
+dirs = "7.0.0"
 serde_json = "1.0.149"
 serde = "1.0.228"
 rosc = "0.11.4"
 time = "0.3.47"
-egui-file-dialog = "0.13.0"
+egui-file-dialog = "0.15.0"
 nnnoiseless = "0.5.2"
 resampler = "0.5.1"
 pipewire = "0.10.1"
