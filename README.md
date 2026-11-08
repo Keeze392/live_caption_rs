@@ -25,4 +25,9 @@ pick one of any models on list: \
 https://huggingface.co/ggerganov/whisper.cpp/tree/main \
 Model level from small knowledge to bigger knowledge: tiny -> base -> small -> medium -> Large
 
+**For VAD model:** \
+Can found under: \
+https://huggingface.co/deepghs/silero-vad-onnx/tree/main \
+I recommended pick silero_vad.onnx for noise filter.
+
 Enjoy!
