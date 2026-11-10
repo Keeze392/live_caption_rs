@@ -1,3 +1,6 @@
+use crate::utils::audio_linux::AudioWorker;
+use crate::utils::osc::OSCAddress;
+
 use std::{
     fs::File,
     io::{BufWriter, Write},
@@ -8,13 +11,12 @@ use std::{
     },
 };
 
-use egui::{CentralPanel, TextEdit, widgets};
+use egui::{CentralPanel, ScrollArea, TextEdit, widgets};
 use egui_file_dialog::{FileDialog, Filter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::utils::audio_linux::AudioWorker;
-use crate::utils::osc::OSCAddress;
+use log::{info, error, warn};
 
 /// flags for tell threads what to do
 /// Should used with Arc
@@ -89,7 +91,7 @@ impl Settings {
         let config_path = match dirs::data_local_dir() {
             Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
             None => {
-                eprintln!("get config path failed");
+                error!("get config path failed");
                 return;
             }
         };
@@ -99,7 +101,7 @@ impl Settings {
         let file = match File::create(config_path) {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("Failed to create a config file: {e}");
+                error!("Failed to create a config file: {e}");
                 return;
             }
         };
@@ -107,16 +109,16 @@ impl Settings {
         // write a file
         let mut writer = BufWriter::new(file);
         if let Err(e) = serde_json::to_writer_pretty(&mut writer, &json) {
-            eprintln!("Failed to write a config file: {e}");
+            error!("Failed to write a config file: {e}");
             return;
         };
 
         if let Err(e) = writer.flush() {
-            eprintln!("Failed to flush the writer {e}");
+            error!("Failed to flush the writer {e}");
             return;
         };
 
-        println!("INFO -- Save configuration successfully");
+        info!("Save configuration successfully");
     }
 
     /// load only at start up GUI.
@@ -125,23 +127,35 @@ impl Settings {
         let config_path = match dirs::data_local_dir() {
             Some(val) => val.to_string_lossy().to_string() + "/livecaption/config.json",
             None => {
-                eprintln!("Error -- get config path failed");
+                error!("get config path failed");
                 return Self::default();
             }
         };
 
-        let Ok(file) = std::fs::read_to_string(config_path) else {
-            eprintln!("Skipping -- No confing file to load");
+        let Ok(file) = std::fs::read_to_string(&config_path) else {
+            warn!("No confing file to load, skipping!");
             return Self::default();
         };
 
+        // remove exist file config if is error or mismatch, so fresh config should fix it.
+        // This prevent from keep printing error due name changed or so.
         let unpack_json: Settings = match serde_json::from_str(&file) {
             Ok(val) => val,
             Err(e) => {
-                println!("Error -- Trying unpack json failed: {e}");
+                error!(
+                    "Trying unpack json failed: {e}. \n
+                    Removing exist file Config because may mismatch or Error in config."
+                );
+
+                if std::fs::remove_file(config_path).is_err() {
+                    error!("Trying remove exist file failed!");
+                }
+
                 return Self::default();
             }
         };
+
+        info!("Configuration Loaded!");
 
         unpack_json
     }
@@ -156,44 +170,46 @@ impl Settings {
                 CentralPanel::default().show(ui, |ui| {
                     let mut data_guard = settings.data.lock().unwrap();
 
-                    // devices list to pick one device for listening
-                    Self::set_combobox_devices(ui, &mut data_guard, &settings.flags);
+                    ScrollArea::vertical().show(ui, |ui| {
+                        // devices list to pick one device for listening
+                        Self::set_combobox_devices(ui, &mut data_guard, &settings.flags);
 
-                    ui.separator();
+                        ui.separator();
 
-                    // button to open new window for select model file with .bin
-                    Self::set_select_model(ui, &mut data_guard);
+                        // button to open new window for select model file with .bin
+                        Self::set_select_model(ui, &mut data_guard);
 
-                    ui.label("");
+                        ui.label("");
 
-                    // button to open new window for select VAD model file with .onnx
-                    Self::set_select_vad_model(ui, &mut data_guard);
+                        // button to open new window for select VAD model file with .onnx
+                        Self::set_select_vad_model(ui, &mut data_guard);
 
-                    ui.separator();
+                        ui.separator();
 
-                    // slider - transparent option
-                    Self::set_slider_transparent(ui, &mut data_guard);
+                        // slider - transparent option
+                        Self::set_slider_transparent(ui, &mut data_guard);
 
-                    ui.separator();
+                        ui.separator();
 
-                    // OSC - expose the output text to outside
-                    Self::toggle_osc(ui, &settings.flags);
-                    Self::set_text_input_osc_port(ui, &mut data_guard);
-                    Self::set_text_input_osc_path(ui, &mut data_guard);
+                        // OSC - expose the output text to outside
+                        Self::toggle_osc(ui, &settings.flags);
+                        Self::set_text_input_osc_port(ui, &mut data_guard);
+                        Self::set_text_input_osc_path(ui, &mut data_guard);
 
-                    ui.label("");
+                        ui.label("");
 
-                    // OSC - Vrchat only
-                    Self::toggle_vrc_osc(ui, &settings.flags);
+                        // OSC - Vrchat only
+                        Self::toggle_vrc_osc(ui, &settings.flags);
 
-                    ui.separator();
+                        ui.separator();
 
-                    Self::toggle_is_enable_save_history(ui, &settings.flags);
+                        Self::toggle_is_enable_save_history(ui, &settings.flags);
 
-                    // save output text to history file
-                    Self::set_save_history_custom_path(ui, &mut data_guard);
+                        // save output text to history file
+                        Self::set_save_history_custom_path(ui, &mut data_guard);
 
-                    ui.separator();
+                        ui.separator();
+                    });
                 });
 
                 // close settings GUI if "x" button is pressed
@@ -206,6 +222,12 @@ impl Settings {
                         .flags
                         .should_save_config
                         .store(true, Ordering::Release);
+
+                    if settings.flags.is_enable_vrc_osc.load(Ordering::Acquire) && 
+                        settings.flags.is_enable_osc.load(Ordering::Acquire) {
+                        warn!("Detected OSC is enable while VRCHAT osc is enable, \
+                            this will ignore OSC and send VRCHAT only.");
+                    }
 
                     // refresh in case if user going open window again to see if devices get refresh
                     AudioWorker::get_devices_array(Arc::clone(&settings));
@@ -347,6 +369,7 @@ impl Settings {
 
         ui.label("This will ignore OSC port & path but using VRC default instead.");
         ui.checkbox(&mut toggle_bool, "Vrchat OSC");
+
 
         flags.is_enable_vrc_osc.store(toggle_bool, Ordering::Release);
     }
