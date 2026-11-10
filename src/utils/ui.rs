@@ -14,6 +14,8 @@ use std::{
 use eframe::egui;
 use egui::{Color32, FontId, RichText, include_image, widgets};
 
+use log::{info, error};
+
 #[derive(Default)]
 pub struct Caption {
     pub current: String,
@@ -131,9 +133,7 @@ impl LiveCaptionRs {
         let docs_path = match dirs::document_dir() {
             Some(val) => val,
             None => {
-                eprintln!(
-                    "Error -- No docs path found, skipping the save, please use custom path."
-                );
+                error!("No docs path found, skipping the save, please use custom path.");
                 return;
             }
         };
@@ -165,7 +165,7 @@ impl LiveCaptionRs {
                 match fs::create_dir(check_path) {
                     Ok(()) => (),
                     Err(e) => {
-                        eprintln!("Error -- failed to create directory: {e}");
+                        error!("failed to create directory: {e}");
                         return;
                     }
                 };
@@ -179,7 +179,7 @@ impl LiveCaptionRs {
         {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("Error -- Failed to create history file: {e}");
+                error!("Failed to create history file: {e}");
                 return;
             }
         };
@@ -194,7 +194,7 @@ impl LiveCaptionRs {
             output_text).as_bytes()) {
             Ok(()) => (),
             Err(e) => {
-                eprintln!("Error -- Failed to write into history file: {e}");
+                error!("Failed to write into history file: {e}");
             }
         };
     }
@@ -308,7 +308,7 @@ impl eframe::App for LiveCaptionRs {
                 .thread_exited_ready
                 .load(Ordering::Acquire)
         {
-            println!("DETECT -- Device has changed! -- Audio restarting...");
+            info!("DETECT -- Device has changed! -- Audio restarting...");
 
             // clone the Arc before give to thread
             self.spawn_audio_thread();
@@ -327,12 +327,14 @@ impl eframe::App for LiveCaptionRs {
         // send to vrc though osc if osc vrc enabled
         if self.is_new_message.load(Ordering::Acquire) &&
             self.settings.flags.is_enable_vrc_osc.load(Ordering::Acquire) {
+
             self.osc_sender.send_to_vrc(caption_sentences);
             self.is_new_message.store(false, Ordering::Release);
 
         // send to non-vrc though osc if osc enabled
         } else if self.is_new_message.load(Ordering::Acquire) &&
             self.settings.flags.is_enable_osc.load(Ordering::Acquire) {
+
             // non-vrchat version
             self.osc_sender.send(caption_sentences);
             self.is_new_message.store(false, Ordering::Release);

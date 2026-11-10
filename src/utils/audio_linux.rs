@@ -1,3 +1,5 @@
+use crate::utils::ui_settings::Settings;
+
 use std::{
     arch::x86_64::{
         _mm256_add_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_storeu_ps,
@@ -27,7 +29,7 @@ use pipewire::{
     stream::{StreamBox, StreamFlags},
 };
 
-use crate::utils::ui_settings::Settings;
+use log::{info, error};
 
 // pipewire settings
 const SAMPLE_RATE: u32 = 16000;
@@ -58,7 +60,7 @@ impl AudioWorker {
         let mainloop = match MainLoopRc::new(None) {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("Err -- Creating mainloop failed: {e}");
+                error!("Creating mainloop failed: {e}");
                 return;
             }
         };
@@ -66,7 +68,7 @@ impl AudioWorker {
         let context = match ContextBox::new(mainloop.loop_(), None) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Creating context failed: {e}");
+                error!("Creating context failed: {e}");
                 return;
             }
         };
@@ -74,7 +76,7 @@ impl AudioWorker {
         let core = match context.connect(None) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Creating connecting failed: {e}");
+                error!("Creating connecting failed: {e}");
                 return;
             }
         };
@@ -92,21 +94,21 @@ impl AudioWorker {
             },
         ) {
             Ok(s) => s,
-            Err(e) => panic!("Err -- Creating stream failed: {e}"),
+            Err(e) => panic!("ERR -- Creating stream failed: {e}"),
         };
 
         // check CPU if has support feature for SIMD otherwise fallback
         let selected_rms_function: unsafe fn(&[f32]) -> bool = if is_x86_feature_detected!(
             "avx512f"
         ) {
-            println!("INFO -- avx512 supported detected! SIMD activated");
+            info!("avx512 supported detected! SIMD activated");
             Self::is_silent_rms_avx512
         } else if is_x86_feature_detected!("avx2") {
-            println!("INFO -- avx2 supported detected! SIMD activated");
+            info!("avx2 supported detected! SIMD activated");
             Self::is_silent_rms_avx2
         } else {
-            println!(
-                "INFO -- No avx2 or avx512 supported detected, fallback scalar mode. SIMD deactivated"
+            info!(
+                "No avx2 or avx512 supported detected, fallback scalar mode. SIMD deactivated"
             );
             Self::is_silent_rms
         };
@@ -159,12 +161,12 @@ impl AudioWorker {
                     }
                 }
             })
-            .state_changed(|_, _, old, new| println!("INFO -- Audio State: {:?} -> {:?}", old, new))
+            .state_changed(|_, _, old, new| info!("Audio State: {:?} -> {:?}", old, new))
             .register()
         {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("Err -- Creating add device failed: {e}");
+                error!("Creating add device failed: {e}");
                 return;
             }
         };
@@ -185,7 +187,7 @@ impl AudioWorker {
         ) {
             Ok((a, b)) => (a, b),
             Err(e) => {
-                eprintln!("Err -- Pod serialize failed: {e}");
+                error!("Pod serialize failed: {e}");
                 return;
             }
         }
@@ -197,8 +199,9 @@ impl AudioWorker {
         // get device id by find match name, this is return "option" so it may none if it fail to find.
         let device_id = Self::get_device_id(&settings_clone.data.lock().unwrap().select_device);
 
-        println!(
-            "INFO -- Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) unless you pick device otherwise does nothing)",
+        info!(
+            "Selecting device: {} (If device can't used by pipewire,it will use default: mic(if is plugged) \
+                unless you pick device otherwise does nothing)",
             settings_clone
                 .data
                 .lock()
@@ -208,7 +211,7 @@ impl AudioWorker {
                 .unwrap_or("None".to_string())
         );
 
-        println!("INFO -- Audio Thread has started!");
+        info!("Audio Thread has started!");
 
         match stream.connect(
             Direction::Input,
@@ -218,7 +221,7 @@ impl AudioWorker {
         ) {
             Ok(()) => (),
             Err(e) => {
-                eprintln!("Err -- Creating stream failed: {e}");
+                error!("Creating stream failed: {e}");
                 return;
             }
         };
@@ -243,7 +246,7 @@ impl AudioWorker {
 
         mainloop.run();
 
-        println!("INFO -- Audio Thread has exited successfully!");
+        info!("Audio Thread has exited successfully!");
     }
 
     /// return true if audio level is too below the minimum requirement.
@@ -327,7 +330,7 @@ impl AudioWorker {
         let mainloop = match MainLoopRc::new(None) {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("Err -- Creating mainloop failed: {e}");
+                error!("Creating mainloop failed: {e}");
                 return None;
             }
         };
@@ -335,7 +338,7 @@ impl AudioWorker {
         let context = match ContextBox::new(mainloop.loop_(), None) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Creating context failed: {e}");
+                error!("Creating context failed: {e}");
                 return None;
             }
         };
@@ -343,7 +346,7 @@ impl AudioWorker {
         let core = match context.connect(None) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Creating connecting failed: {e}");
+                error!("Creating connecting failed: {e}");
                 return None;
             }
         };
@@ -351,7 +354,7 @@ impl AudioWorker {
         let registry = match core.get_registry() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Getting registry failed: {e}");
+                error!("Getting registry failed: {e}");
                 return None;
             }
         };
@@ -408,7 +411,7 @@ impl AudioWorker {
         let mainloop = match MainLoopRc::new(None) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("Err -- Creating mainloop failed: {e}");
+                error!("Creating mainloop failed: {e}");
                 return;
             }
         };
@@ -416,7 +419,7 @@ impl AudioWorker {
         let context = match ContextBox::new(mainloop.loop_(), None) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Creating context failed: {e}");
+                error!("Creating context failed: {e}");
                 return;
             }
         };
@@ -424,7 +427,7 @@ impl AudioWorker {
         let core = match context.connect(None) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Creating connecting failed: {e}");
+                error!("Creating connecting failed: {e}");
                 return;
             }
         };
@@ -432,7 +435,7 @@ impl AudioWorker {
         let registry = match core.get_registry() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Err -- Getting registry failed: {e}");
+                error!("Getting registry failed: {e}");
                 return;
             }
         };

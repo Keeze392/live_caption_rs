@@ -1,6 +1,7 @@
 use rosc::{OscMessage, OscPacket, OscType, encoder};
 use serde::{Deserialize, Serialize};
 use std::net::UdpSocket;
+use log::error;
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct OSCAddress {
@@ -29,7 +30,7 @@ impl OSCSender {
     pub fn set_port(&mut self, output_port: String) {
         // not accept any char other than numbers
         if !output_port.chars().all(|val| val.is_numeric()) {
-            eprintln!("ERR -- OSC port accept only numbers");
+            error!("OSC port accept only numbers");
             return;
         }
 
@@ -48,7 +49,7 @@ impl OSCSender {
         let buf = match encoder::encode(&packet) {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("OSC Err -- encoding a packet failed: {e}");
+                error!("OSC encoding a packet failed: {e}");
                 return;
             }
         };
@@ -59,7 +60,7 @@ impl OSCSender {
             match self.socket.send_to(&buf, full_addr_target) {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!("OSC Err -- Sending failed: {e}");
+                    error!("OSC Sending failed: {e}");
                 }
             }
         }
@@ -85,7 +86,7 @@ impl OSCSender {
         let buf = match encoder::encode(&packet) {
             Ok(val) => val,
             Err(e) => {
-                eprintln!("OSC Err -- encoding a packet failed: {e}");
+                error!("OSC encoding a packet failed: {e}");
                 return;
             }
         };
@@ -95,7 +96,7 @@ impl OSCSender {
         match self.socket.send_to(&buf, full_addr_target) {
             Ok(_) => (),
             Err(e) => {
-                eprintln!("OSC Err -- Sending failed: {e}");
+                error!("OSC Sending failed: {e}");
             }
         }
     }

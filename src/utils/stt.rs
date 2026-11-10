@@ -1,3 +1,5 @@
+use crate::utils::{ui::Caption, ui_settings::Settings};
+
 use std::{
     path::PathBuf,
     sync::{
@@ -13,7 +15,7 @@ use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState, WhisperVadParams,
 };
 
-use crate::utils::{ui::Caption, ui_settings::Settings};
+use log::{error, warn};
 
 const RATE: usize = 16000;
 
@@ -87,7 +89,7 @@ impl WhisperSTT {
             {
                 // check if file is available in that path
                 if !path.exists() {
-                    eprintln!(
+                    warn!(
                         "No file found in this path: {}\nPlease go to settings to pick file path for stt model",
                         path.to_string_lossy()
                     );
@@ -113,7 +115,7 @@ impl WhisperSTT {
                     self.state = match inside_ctx.create_state() {
                         Ok(s) => Some(s),
                         Err(e) => {
-                            eprintln!("Err -- Creating state failed: {e}");
+                            error!("Creating state failed: {e}");
                             continue;
                         }
                     }
@@ -126,7 +128,7 @@ impl WhisperSTT {
             {
                 // check if file is exist
                 if !vad_path.exists() {
-                    eprintln!("No vad model file found in this path: {}",
+                    error!("No vad model file found in this path: {}",
                         vad_path.to_string_lossy()
                     );
 
@@ -219,7 +221,7 @@ impl WhisperSTT {
         match whisper.full(params, buffer) {
             Ok(()) => (),
             Err(e) => {
-                eprintln!("Err -- running task whisper failed: {e}");
+                error!("running task whisper failed: {e}");
                 return "".into();
             }
         };

@@ -1,11 +1,27 @@
+use crate::utils::ui;
+use std::io::Write;
+
 mod utils;
 
 use eframe::egui;
-
-use crate::utils::ui;
+use log::error;
 
 fn main() {
-    env_logger::init();
+    env_logger::builder()
+        .format(|buf, record| {
+            let style = buf.default_level_style(record.level());
+            let date = time::OffsetDateTime::now_utc();
+
+            let date_format = format!("{} {}:{}:{}",
+                date.date(), date.hour(),
+                date.minute(), date.second());
+
+            writeln!(buf, "[{} {}{}{}] {}",
+                date_format, style.render(),
+                record.level(), style.render_reset(), record.args())
+        })
+        .filter_level(log::LevelFilter::Info)
+        .init();
 
     // main GUI
     let native_options = eframe::NativeOptions {
@@ -28,6 +44,6 @@ fn main() {
         }),
     ) {
         Ok(()) => (),
-        Err(e) => panic!("Error: {e}"),
+        Err(e) => error!("Failed to run GUI: {e}"),
     };
 }
